@@ -1,4 +1,13 @@
-﻿; Based On Ultimate Macro TDS by Darksen, version 1.3.3a. Modified by IAmLaggingSoBad
+﻿; Ultimate Macro (macro for TDS) by Darksen
+;   Free for anyone to use
+;   Modifications are welcome, however stealing credit is not.
+;   You can add your name, but my original credit must remain.
+;
+; Thanks to everyone who helped me.
+;
+; Started on March 30, 2026. My friend bet me that I wouldn't make a macro for TDS, but I did.
+;
+; Discord Server - https://discord.gg/DQnc2JDJtr
 
 #Requires AutoHotkey v2.0
 #SingleInstance Force
@@ -5829,10 +5838,17 @@ SelectNightVariant() {
 }
 
 SkipNightCutscene(timeoutMs := 60000) {
-    ; The cutscene skip must be held for about 5 seconds.
+    ; The cutscene skip must be held for about 5 seconds. A hold can silently fail
+    ; (focus lost, press not registered), so after releasing, check that the button is
+    ; gone and hold again if it is still on screen.
     deadline := A_TickCount + timeoutMs
+    holds := 0
     Loop {
         if (A_TickCount > deadline) {
+            if (holds > 0) {
+                LogToConsole("Night: skip button still visible after " holds " holds, continuing...")
+                return true
+            }
             LogToConsole("Night: the cutscene skip button never appeared.")
             return false
         }
@@ -5841,11 +5857,23 @@ SkipNightCutscene(timeoutMs := 60000) {
             return false
         res := AdvancedImageSearch("Resources/hold_to_skip.png", 0, 0, rw, rh)
         if (res.status = "success" && res.score >= 0.67) {
+            if (holds >= 3) {
+                LogToConsole("Night: skip button still visible after 3 holds, continuing...")
+                return true
+            }
             ActivateRoblox()
+            MouseMove(res.x, res.y)
+            Sleep(150)
             Click(res.x, res.y, "Down")
             Sleep(5500)
             Click(res.x, res.y, "Up")
-            LogToConsole("Night: held the cutscene skip button.")
+            holds++
+            LogToConsole("Night: held the cutscene skip button (attempt " holds ").")
+            Sleep(1000)
+            continue
+        }
+        if (holds > 0) {
+            LogToConsole("Night: cutscene skipped.")
             return true
         }
         Sleep(300)
