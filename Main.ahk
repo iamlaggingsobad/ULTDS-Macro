@@ -1,13 +1,4 @@
-﻿; Ultimate Macro (macro for TDS) by Darksen
-;   Free for anyone to use
-;   Modifications are welcome, however stealing credit is not.
-;   You can add your name, but my original credit must remain.
-;
-; Thanks to everyone who helped me.
-;
-; Started on March 30, 2026. My friend bet me that I wouldn't make a macro for TDS, but I did.
-;
-; Discord Server - https://discord.gg/DQnc2JDJtr
+﻿; Heavily Modified Version of Ultimate Macro (macro for TDS) by Darksen v1.3.3a, by IAmLaggingSoBad
 
 #Requires AutoHotkey v2.0
 #SingleInstance Force
