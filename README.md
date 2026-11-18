@@ -1,9 +1,9 @@
-# Ultimate Macro (TDS) - Personal Use
+# Ultimate Macro (TDS) - Personal Fork
 
 An automation macro for Roblox **Tower Defense Simulator**: record strategies, replay them, and loop matches hands-free.
 
 > Based on *Ultimate Macro* by Darksen, released under the GPL-3.0 license (see `LICENSE`).
-> This is an unofficial personal-use fork with the changes listed below.
+> This is an unofficial personal-use fork of version 1.3.3a with the changes listed below.
 
 ## Features
 
@@ -21,12 +21,29 @@ An automation macro for Roblox **Tower Defense Simulator**: record strategies, r
 
 ## What's different in this fork
 
-* **Strategies folder** - Put `.strat` files in `Strategies` next to `Main.ahk`. In the Main tab use **Add** to import a file, **Open folder** to browse it, **Refresh** to reload, and **Remove** on a card to delete a strat. Strategies you record are listed too (saved in `%AppData%\Ultimate_Macro\Recordings`).
-* **Reward icons** - Add `coins=` and/or `gems=` to a strat's `[Info]` section. Valid values: `small`, `medium`, `large`, `largest`. If a currency is empty or missing, its icon is greyed out.
-* **Night 4** - Use `difficulty=Night4` in strat files (the old `N4` value still works).
-* **Loadout failsafe** - The "Your Loadout" button is clicked, checked, and retried. If Ready still isn't found, the loadout step runs once more before the macro reloads.
-* **Primary-monitor screenshots** - Webhook screenshots capture only your main monitor, not every screen.
-* **Images folder** - Library icons are in `Resources\Images`.
+Changes compared with the original Ultimate Macro **1.3.3a**.
+
+**Strategy library**
+* Strategies live in the `Strategies` folder next to `Main.ahk`. In the Main tab use **Add** to import a `.strat`, **Open folder** to browse it, **Refresh** to reload, and **Remove** on a card to delete one. Strategies you record are listed too (saved in `%AppData%\Ultimate_Macro\Recordings`).
+* The bundled strategies and the community download feature are gone: the library only shows your own strats.
+* Each card shows three full-size icons: difficulty, coins and gems. Set `coins=` and/or `gems=` in a strat's `[Info]` section (`small`, `medium`, `large` or `largest`). A currency that is empty or missing shows a greyed-out icon.
+* Library icons moved to `Resources\Images`.
+
+**Night events (Night 3 and Night 4)**
+* Use `difficulty=Night4` in strat files for Night 4 (the old `N4` still works). Night skips the map check, resets and aligns the camera, and picks the Easy or Hard variant from the strat.
+* The "Your Loadout" button is clicked, checked and retried, and the loadout step runs once more if Ready is not found before the macro reloads.
+* The cutscene skip is held, checked and held again (up to 3 times) if the button is still on screen.
+* At the end of a run the macro skips the cutscene, clicks Return To Lobby and starts the next run.
+* Night support is adapted from the 1.3.4a build.
+
+**Reliability**
+* The Ready button is clicked at the centre of the detected green button instead of at its edge.
+* Restart button detection checks both button images and uses the better match.
+* Tower placement and cloning retry with logging, and a few camera-input timings were adjusted.
+
+**Logging and webhook**
+* **Audit log:** Tools tab, **Open Audit Log**. Errors, retries and recoveries are saved to `Logs\audit_log.tsv` so you can review them after a run.
+* Webhook screenshots capture only your primary monitor, not every screen.
 
 ## Strategy file format
 
