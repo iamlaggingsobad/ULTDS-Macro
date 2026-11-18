@@ -1,4 +1,4 @@
-# Ultimate Macro (TDS) - Personal Fork
+# Ultimate Macro (TDS) - Personal Use
 
 An automation macro for Roblox **Tower Defense Simulator**: record strategies, replay them, and loop matches hands-free.
 
