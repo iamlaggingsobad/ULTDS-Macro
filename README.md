@@ -60,11 +60,13 @@ Library icons are loaded from `Resources\Images`:
   * Recommended resolution: **1920x1080**
   * Display scaling: **100%**
   * The **English (US)** language pack must be installed for text recognition (OCR).
+  * The **taskbar must be visible** (do not set it to auto-hide).
 * **Roblox & TDS settings:**
   * UI Scale: **Large**
   * Screen Shake: **Disabled**
   * Prefer Vertical Upgrades: **Enabled**
   * No custom fonts
+  * Roblox must be in **windowed mode**, not fullscreen.
 * Run Roblox on your **primary monitor** so webhook screenshots show the game.
 
 ## Installation
