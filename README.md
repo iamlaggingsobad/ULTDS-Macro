@@ -27,7 +27,6 @@ An automation macro for Roblox **Tower Defense Simulator**: record strategies, r
 * **Loadout failsafe** - The "Your Loadout" button is clicked, checked, and retried. If Ready still isn't found, the loadout step runs once more before the macro reloads.
 * **Primary-monitor screenshots** - Webhook screenshots capture only your main monitor, not every screen.
 * **Images folder** - Library icons are in `Resources\Images`.
-* **Credits tab removed.**
 
 ## Strategy file format
 
