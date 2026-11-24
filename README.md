@@ -87,10 +87,10 @@ Strategies are `.strat` files made of an `[Info]` section and a `[Settings]` sec
 title=My Strat
 author=Your name
 desc=Short description
-coins=1425, large
-gems=0
-exp=120
-time=~14m 20s
+coins=1000, small
+gems=500, largest
+exp=100
+time=~6m 7s
 
 [Settings]
 map=Dead ahead
