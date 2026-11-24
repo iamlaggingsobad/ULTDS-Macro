@@ -152,9 +152,9 @@ ModeColorHex(mode) {
         colors["Casual"] := "78C884"
         colors["Intermediate"] := "E88B7E"
         colors["Molten"] := "E59424"
-        colors["Night"] := "7B52D6"
-        colors["Night4"] := "7B52D6"
-        colors["N4"] := "7B52D6"
+        colors["Badlands II"] := "D08A4A"
+        colors["Pizza Party"] := "E5533D"
+        colors["Polluted Wasteland II"] := "7FB83A"
     }
     return colors.Has(mode) ? colors[mode] : "8A94A6"
 }
@@ -181,4 +181,52 @@ BadgeColors(rgb, maxLum := 130) {
     lum := 0.299 * r + 0.587 * g + 0.114 * b
     f := lum > maxLum ? maxLum / lum : 1
     return [ShadeHex(rgb, f * 1.12), ShadeHex(rgb, f * 0.58)]
+}
+
+; ----------------------------------------------------------------------------------------------------------------------
+; Map icons for the strategy library
+;
+;   Icons live in Resources\Images\MapIcons\<Map Name>.png (see the README.txt in that folder for the full list).
+;   A map without an icon file is shown as a plate with its initials, so nothing breaks while icons are missing.
+; ----------------------------------------------------------------------------------------------------------------------
+
+; Special modes own their map: it exists only in that mode, so the mode name and the map name are the same.
+; Accepts the usual spellings ("Badlands 2" = "Badlands II"). Returns the proper name, or "" for any other mode.
+SpecialModeName(mode) {
+    info := GetMapInfo(mode)
+    if (info && InStr("|Badlands II|Pizza Party|Polluted Wasteland II|", "|" info.name "|"))
+        return info.name
+    return ""
+}
+
+; Path of a map's icon, or "" when the file has not been added yet.
+MapIconPath(name) {
+    if (Trim(name) = "")
+        return ""
+    path := "Resources/Images/MapIcons/" RegExReplace(Trim(name), '[\\/:*?"<>|]', "") ".png"
+    return FileExist(path) ? path : ""
+}
+
+; "Wrecked Battlefield II" -> "WBI", "U-Turn" -> "UT", "Happy Home of Robloxia" -> "HHR" (at most 3 letters)
+MapInitials(name) {
+    out := "", pos := 1
+    while (pos := RegExMatch(name, "[A-Za-z0-9]+", &m, pos)) {
+        pos += StrLen(m[0])
+        if (StrLower(m[0]) = "of" || StrLower(m[0]) = "the")
+            continue
+        out .= StrUpper(SubStr(m[0], 1, 1))
+        if (StrLen(out) >= 3)
+            break
+    }
+    return out != "" ? out : "?"
+}
+
+; Lightens a colour that is too dark to read as text on the dark card (for example the purple of "Insane").
+LiftHex(rgb, minLum := 110) {
+    r := Integer("0x" SubStr(rgb, 1, 2)), g := Integer("0x" SubStr(rgb, 3, 2)), b := Integer("0x" SubStr(rgb, 5, 2))
+    lum := 0.299 * r + 0.587 * g + 0.114 * b
+    if (lum >= minLum)
+        return rgb
+    t := (minLum - lum) / (255 - lum)
+    return Format("{:02X}{:02X}{:02X}", r + Round((255 - r) * t), g + Round((255 - g) * t), b + Round((255 - b) * t))
 }

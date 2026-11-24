@@ -200,7 +200,7 @@ if (TimeScaleMode = "1.5x") {
 
 global UpgradeDelay := IniRead(SettingsFile, "Options", "UpgradeDelay", 200)
 
-global gamemap := "", difficulty := "", requiredTowers := "", eventDifficulty := "", CurrentStrategyFile := ""
+global gamemap := "", difficulty := "", requiredTowers := "", CurrentStrategyFile := ""
 
 ; audit log (see AuditLog)
 global AuditLogDir := A_WorkingDir "\Logs"
@@ -223,7 +223,6 @@ global modifiers := ""
 global LastDisconnectCheck := 0
 global LastOpenedTowerID := ""
 global IsRestarting := false
-global NightMatchLost := false
 global SafeExitFlag := false
 global RestartLock := false
 
@@ -869,10 +868,14 @@ if (lastUpdate != "0") {
 
 ; With Strategy Rotation off the "Strategy 2" row is hidden, so everything below it moves up 30px and the
 ; library gets 30px more height (see EnableStratRotation).
+; UIExtra = how many pixels taller the window is than the original design (565). It gives the library room
+; to show 2 cards at once (2 cards of 134px + 10px gaps = 298px). Everything below the library (Start / Stop,
+; the footer, and the buttons of the other tabs) is moved down by this amount before the window is shown.
+global UIExtra := 0
 global FrameX := 30
 global FrameY := (RotateStrategies = 1) ? 262 : 232
 global FrameW := 640
-global FrameH := (RotateStrategies = 1) ? 224 : 254
+global FrameH := ((RotateStrategies = 1) ? 224 : 254) + UIExtra
 global ContentH := 400
 global CurrentScrollPos := 0
 global SliderH := 30
@@ -920,10 +923,19 @@ Loop Files, stratSrc[1] "\*.strat" {
 }
 }
 
-StartY := 15
-CardH  := 120
+; Saved order (arrow buttons on each card): file paths separated by |, top of the list first.
+; Strats that are not in the saved order yet (new ones) go to the end, in their normal order.
+StratLib_ApplyOrder(LoadedStrats)
+
+; Every card's controls are remembered (StratCards) so the arrows can move cards around live, without a reload.
+global StratCards := []
+global StratTips := []      ; invisible hover areas over the icon plates (each has a .Tip text), see Hoverwatchdog
+StratSeenHwnds := Map()
+
+StartY := 10
+CardH  := 134
 CardW  := 610
-Gap    := 15
+Gap    := 10
 
 ContentH := StartY
 
@@ -937,82 +949,152 @@ for index, strat in LoadedStrats {
     hFrameBg := CreateFrame(CardW, CardH, 10, "0xff161616", "0xff1d1d1d", "0x62302d2d")
     ChildGui.Add("Picture", "x" C1X " y" C1Y " w" CardW " h" CardH " +BackgroundTrans", "HBITMAP:*" hFrameBg)
 
-    ; ---- Card layout (610 x 120) --------------------------------------------------
+    ; ---- Card layout (610 x 134) --------------------------------------------------
     ; Every element owns a fixed box, so nothing can overlap. Long text is cut off with "...".
-    ;   |  [mode] [coins] [gems] [exp]    title                        [   Load   ]
-    ;   |   Molten  1425     0     120    [        map name        ]    [ Info ][ Remove ]
-    ;                                     Time    ~14m 20s
+    ;   |  Title                                                        [   Load   ]
+    ;   |  Title                                                        [        Load        ]
+    ;   |  [^] [mode] [map] [coins] [gems] [exp]                        [          Info          ]
+    ;   |  [v]  Molten Normal  1425     0     120                       (clock) ~14m 20s
+    ;   |  [edit] [trash]
     ; Each icon plate has its value written underneath, in the colour of that icon:
-    ;   mode = the game mode colour, coins = gold, gems = magenta, unit exp = cyan, nothing/zero = grey.
-    ; The map chip uses the map's difficulty rating colour (see lib\MapDatabase.ahk) with white text.
+    ;   mode = the game mode colour, coins = gold, gems = magenta, unit exp = cyan, nothing/zero = grey,
+    ;   map = the map's picture (Resources\Images\MapIcons) with its difficulty rating underneath.
+    ; The up / down arrows move the card in the list (the order is saved).
+    ; Special modes (Badlands II, Pizza Party, Polluted Wasteland II) come with their own map, so the strat's
+    ; map= line is not used for them: the mode plate says "Special", the map plate shows that mode's map and
+    ; says "Exclusive".
     ; Towers and the description are in the Info popup.
     ;
-    ; Horizontal map (card-relative):  accent 10-14 | plates 22..270 | text 286..474 | buttons 486..594
+    ; Horizontal map (card-relative):  arrows 10..34 | accent 40-44 | plates 54..366 | buttons 380..600, time below Info
+    noneHex := "7E848E"
     modeName := strat.difficulty != "" ? strat.difficulty : "Easy"
+    specialName := SpecialModeName(modeName)              ; "Badlands II" / "Pizza Party" / ... or ""
+    if (specialName != "")
+        modeName := specialName                           ; also fixes spellings such as "Badlands 2"
     modeHex := ModeColorHex(modeName)
 
-    ; accent bar, same height as the plates
-    ChildGui.Add("Text", "x" (C1X + 10) " y" (C1Y + 20) " w4 h56 Background" modeHex, "")
+    ; mode plate text, and the icon file for the mode
+    modeLabel := (specialName != "") ? "Special" : modeName
 
-    ; Four 56x56 icon plates, 8px apart. The plate bitmap carries a 6px shadow margin, so it is
+    ; map plate + chip. mapName picks the icon file; mapHex colours the chip; mapTextHex colours the plate text.
+    mapInfo := ""
+    if (specialName != "") {
+        mapName := specialName, mapChip := specialName, mapHex := modeHex, mapLabel := "Exclusive", mapTextHex := modeHex
+    } else if (strat.map != "") {
+        mapInfo := GetMapInfo(strat.map)
+        mapName := mapInfo ? mapInfo.name : strat.map
+        mapChip := mapName
+        mapHex := mapInfo ? mapInfo.color : "8A94A6"
+        mapLabel := mapInfo ? mapInfo.rating : "Unrated"
+        mapTextHex := mapInfo ? LiftHex(mapHex) : noneHex
+    } else {
+        mapName := "", mapChip := modeLabel, mapHex := modeHex, mapLabel := "Unknown", mapTextHex := noneHex
+    }
+    mapImg := MapIconPath(mapName)
+    mapAbbr := mapName != "" ? MapInitials(mapName) : "?"
+
+    ; accent bar: a full-height divider between the arrow column and the title / icons
+    ChildGui.Add("Text", "x" (C1X + 40) " y" (C1Y + 10) " w4 h114 Background" modeHex, "")
+
+    ; title, left aligned above the icon row (falls back to the file name when the strat has no title)
+    ChildGui.SetFont("s11 Bold cWhite", "Segoe UI")
+    ChildGui.Add("Text", "x" (C1X + 54) " y" (C1Y + 12) " w320 h24 +0x200 +0x4000 +BackgroundTrans", strat.title != "" ? strat.title : (strat.stem != "" ? strat.stem : "Unknown Strat"))
+
+    ; Five 56x56 icon plates, 8px apart. The plate bitmap carries a 6px shadow margin, so it is
     ; drawn 12px larger and placed 6px up/left of the visible plate.
-    ;   [plate x, icon file, label text, label colour, label font size, label box width]
+    ;   [plate id, plate x, icon file, label text, label colour, label font size, label box width]
     hPlateBg := CreateGradientButton(68, 68, 10, "0xff2f353f", "0xff15171b", "0xff000000", "0x232c3a50", "", "Segoe UI", 10, 1)
-    diffImg := "Resources/Images/" ((modeName = "Night4" || modeName = "N4") ? "Night4" : modeName) ".png"
-    noneHex := "7E848E"
-    modeLblSize := StrLen(modeName) <= 8 ? 10 : (StrLen(modeName) <= 10 ? 9 : 8)
+    diffImg := "Resources/Images/" modeName ".png"
+    modeLblSize := StrLen(modeLabel) <= 8 ? 10 : (StrLen(modeLabel) <= 10 ? 9 : 8)
+    mapLblSize := StrLen(mapLabel) <= 8 ? 10 : 9
     plates := [
-        ["plate_diff",  22,  diffImg,                                       modeName,         modeHex,                                       modeLblSize, 76],
-        ["plate_coins", 86,  StratRewardIcon("coins", strat.coins.size),   strat.coins.text, strat.coins.active ? "F9B519" : noneHex,       10,          64],
-        ["plate_gems",  150, StratRewardIcon("gems", strat.gems.size),     strat.gems.text,  strat.gems.active ? "E975F5" : noneHex,        10,          64],
-        ["plate_exp",   214, "Resources/Images/exp.png",                   strat.exp.text,   strat.exp.active ? "4FDDF9" : noneHex,         10,          64]
+        ["plate_diff",  54,  diffImg,                                       modeLabel,        modeHex,                                       modeLblSize, 76],
+        ["plate_map",   118, mapImg,                                        mapLabel,         mapTextHex,                                    mapLblSize,  64],
+        ["plate_coins", 182, StratRewardIcon("coins", strat.coins.size),   strat.coins.text, strat.coins.active ? "F9B519" : noneHex,       10,          64],
+        ["plate_gems",  246, StratRewardIcon("gems", strat.gems.size),     strat.gems.text,  strat.gems.active ? "E975F5" : noneHex,        10,          64],
+        ["plate_exp",   310, "Resources/Images/exp.png",                   strat.exp.text,   strat.exp.active ? "4FDDF9" : noneHex,         10,          64]
     ]
     for plate in plates {
-        px := C1X + plate[2], py := C1Y + 20
+        px := C1X + plate[2], py := C1Y + 42
         ChildGui.Add("Picture", "x" (px - 6) " y" (py - 6) " w68 h68 +BackgroundTrans", "HBITMAP:*" hPlateBg)
-        if (plate[3] != "" && FileExist(plate[3]))
+        if (plate[3] != "" && FileExist(plate[3])) {
             ChildGui.Add("Picture", "x" (px + 4) " y" (py + 4) " w48 h48 +BackgroundTrans", plate[3])
-        else if (plate[1] = "plate_diff" && !strat.user)
+        } else if (plate[1] = "plate_map") {
+            ; no icon file for this map yet: the plate shows the map's initials instead
+            ChildGui.SetFont("s13 Bold c" mapTextHex, "Segoe UI")
+            ChildGui.Add("Text", "x" (px + 4) " y" (py + 4) " w48 h48 +0x200 Center +BackgroundTrans", mapAbbr)
+        } else if (plate[1] = "plate_diff" && !strat.user) {
             LogToConsole("Missing resource file: " plate[3], "Error", 0x1010)
+        }
 
         ; value label under the plate, centred on it
         ChildGui.SetFont("s" plate[6] " Bold c" plate[5], "Segoe UI")
         ChildGui.Add("Text", "x" (px + 28 - plate[7] // 2) " y" (py + 60) " w" plate[7] " h18 +0x200 +0x4000 Center +BackgroundTrans", plate[4])
+
+        ; hover area over the plate: Hoverwatchdog shows this text as a tooltip while the mouse rests on it
+        switch plate[1] {
+            case "plate_diff":  plateTip := specialName != "" ? specialName : modeName
+            case "plate_map":   plateTip := mapName != "" ? mapName : "Unknown map"
+            case "plate_coins": plateTip := (strat.coins.size = "" ? "No" : StrUpper(SubStr(strat.coins.size, 1, 1)) SubStr(strat.coins.size, 2)) " coins"
+            case "plate_gems":  plateTip := (strat.gems.size = "" ? "No" : StrUpper(SubStr(strat.gems.size, 1, 1)) SubStr(strat.gems.size, 2)) " gems"
+            default:            plateTip := "Tower EXP"
+        }
+        tipCtrl := ChildGui.Add("Text", "x" px " y" py " w56 h56 +BackgroundTrans", "")
+        tipCtrl.Tip := plateTip
+        StratTips.Push(tipCtrl)
     }
 
-    ; title (falls back to the file name when the strat has no title)
-    ChildGui.SetFont("s11 Bold cWhite", "Segoe UI")
-    ChildGui.Add("Text", "x" (C1X + 286) " y" (C1Y + 14) " w188 h24 +0x200 +0x4000 +BackgroundTrans", strat.title != "" ? strat.title : (strat.stem != "" ? strat.stem : "Unknown Strat"))
+    ; Button column at the left of the card: four 24 x 24 squares, 6px apart, spanning the divider line
+    ; (y 10..124): up, down, edit, remove. On the first card the up arrow is dimmed, on the last card the down arrow is dimmed.
+    arrowN := ["0xff3a404c", "0xff1d2026"], arrowH := ["0xff4d5564", "0xff292d35"]
+    cardRec := {strat: strat, ctrls: [], up: "", down: ""}
+    for dirName in ["Up", "Down"] {
+        glyph := dirName = "Up" ? Chr(0x25B2) : Chr(0x25BC)
+        ay := C1Y + 10 + (dirName = "Up" ? 0 : 30)
+        ; Both versions are created: the dimmed one (does nothing) and the active one. StratLib_SetArrows shows
+        ; the right one: first card has Up dimmed, last card has Down dimmed. They swap live when cards move.
+        arrOff := CreateGradientButton(36, 36, 6, "0xff1f2228", "0xff17191d", "0x20000000", "0x1fffffff", glyph, "Segoe UI Symbol", 9, 1, "0xFF4A505B")
+        picOff := ChildGui.Add("Picture", "x" (C1X + 4) " y" (ay - 6) " w36 h36 +BackgroundTrans", "HBITMAP:*" arrOff)
+        arrNormal := CreateGradientButton(36, 36, 6, arrowN[1], arrowN[2], "0x40000000", "0x5dffffff", glyph, "Segoe UI Symbol", 9, 1)
+        arrHover := CreateGradientButton(36, 36, 6, arrowH[1], arrowH[2], "0x60000000", "0x5dffffff", glyph, "Segoe UI Symbol", 9, 1)
+        picArr := ChildGui.Add("Picture", "x" (C1X + 4) " y" (ay - 6) " w36 h36 +BackgroundTrans", "HBITMAP:*" arrNormal)
+        arr1 := ChildGui.Add("Text", "x" (C1X + 10) " y" ay " w24 h24 +BackgroundTrans +0x200 Center", "")
+        arr1.OnEvent("Click", ((p, d) => (*) => StratLib_Move(p, d))(strat.path, dirName = "Up" ? -1 : 1))
+        arr1.PicControl := picArr
+        arr1.ImgNormal := arrNormal
+        arr1.ImgHover := arrHover
+        GradientButtons.Push(arr1)
+        cardRec.%StrLower(dirName)% := {off: picOff, pic: picArr, hit: arr1}
+    }
+    StratLib_SetArrows(cardRec, index, LoadedStrats.Length)
 
-    ; map name chip (188 x 32), coloured by the map's difficulty rating, white text.
-    ; Night modes (or a strat with no map) show the mode instead.
-    if (strat.map != "" && !IsNightMode(modeName)) {
-        mapInfo := GetMapInfo(strat.map)
-        mapHex := mapInfo ? mapInfo.color : "8A94A6"
-        mapText := mapInfo ? mapInfo.name : strat.map
+    ; time row, right below the Info button: clock icon (Resources\Images\clock.png) then the time text.
+    ; Falls back to a plain "Time" label if the icon file is missing.
+    timeX := C1X + 402
+    if FileExist("Resources/Images/clock.png") {
+        ChildGui.Add("Picture", "x" (C1X + 380) " y" (C1Y + 108) " w14 h14 +BackgroundTrans", "Resources/Images/clock.png")
     } else {
-        mapHex := modeHex
-        mapText := modeName
+        timeX := C1X + 434
+        ChildGui.SetFont("s9 w600 c7E848E", "Segoe UI")
+        ChildGui.Add("Text", "x" (C1X + 380) " y" (C1Y + 106) " w52 h18 +0x200 +BackgroundTrans", "Time")
     }
-    AddBadge(ChildGui, C1X + 286, C1Y + 44, 188, 32, mapHex, mapText, 14)
-
-    ; time row (plain text, no emoji glyphs)
-    ChildGui.SetFont("s9 w600 c7E848E", "Segoe UI")
-    ChildGui.Add("Text", "x" (C1X + 286) " y" (C1Y + 84) " w52 h18 +0x200 +BackgroundTrans", "Time")
     ChildGui.SetFont("s9 w500 cC5CBD3", "Segoe UI")
-    ChildGui.Add("Text", "x" (C1X + 340) " y" (C1Y + 84) " w140 h18 +0x200 +0x4000 +BackgroundTrans", strat.time != "" ? strat.time : "Unknown")
+    ChildGui.Add("Text", "x" timeX " y" (C1Y + 106) " w" (C1X + 600 - timeX) " h18 +0x200 +0x4000 +BackgroundTrans", strat.time != "" ? strat.time : "Unknown")
+    timeTip := ChildGui.Add("Text", "x" (C1X + 380) " y" (C1Y + 104) " w220 h22 +BackgroundTrans", "")
+    timeTip.Tip := "Estimated run time"
+    StratTips.Push(timeTip)
 
-    ; Load (108 x 36). Button bitmaps carry a 6px shadow margin on every side, so they are drawn 12px larger
+    ; Load (220 x 36). Button bitmaps carry a 6px shadow margin on every side, so they are drawn 12px larger
     ; than the button and placed 6px up/left; the click area sits exactly on the visible button.
     if ((strat.difficulty = "Hardcore" || strat.difficulty = "Voidcore")) {
-        hBtnNormal := CreateGradientButton(120, 48, 8, "0xff961ea1", "0xff5f237a", "0x40000000", "0x5dffffff", "Load", "Segoe UI", 13, 1)
-        hBtnHover := CreateGradientButton(120, 48, 8, "0xffea00ff", "0xff8d32b7", "0x60000000", "0x5dffffff", "Load", "Segoe UI", 13, 1)
+        hBtnNormal := CreateGradientButton(232, 48, 8, "0xff961ea1", "0xff5f237a", "0x40000000", "0x5dffffff", "Load", "Segoe UI", 13, 1)
+        hBtnHover := CreateGradientButton(232, 48, 8, "0xffea00ff", "0xff8d32b7", "0x60000000", "0x5dffffff", "Load", "Segoe UI", 13, 1)
     } else {
-        hBtnNormal := CreateGradientButton(120, 48, 8, "0xFF147A6E", "0xFF214B75", "0x40000000", "0x5dffffff", "Load", "Segoe UI", 13, 1)
-        hBtnHover := CreateGradientButton(120, 48, 8, "0xFF1CB5A2", "0xFF3272B7", "0x60000000", "0x5dffffff", "Load", "Segoe UI", 13, 1)
+        hBtnNormal := CreateGradientButton(232, 48, 8, "0xFF147A6E", "0xFF214B75", "0x40000000", "0x5dffffff", "Load", "Segoe UI", 13, 1)
+        hBtnHover := CreateGradientButton(232, 48, 8, "0xFF1CB5A2", "0xFF3272B7", "0x60000000", "0x5dffffff", "Load", "Segoe UI", 13, 1)
     }
-    picLoadBtn := ChildGui.Add("Picture", "x" (C1X + 480) " y" (C1Y + 18) " w120 h48 +BackgroundTrans", "HBITMAP:*" hBtnNormal)
-    dl1 := ChildGui.Add("Text", "x" (C1X + 486) " y" (C1Y + 24) " w108 h36 +BackgroundTrans +0x200 Center", "")
+    picLoadBtn := ChildGui.Add("Picture", "x" (C1X + 374) " y" (C1Y + 26) " w232 h48 +BackgroundTrans", "HBITMAP:*" hBtnNormal)
+    dl1 := ChildGui.Add("Text", "x" (C1X + 380) " y" (C1Y + 32) " w220 h36 +BackgroundTrans +0x200 Center", "")
     dl1.SetFont("cFFFFFF s10 Bold", "Segoe UI")
     dl1.StratFile := strat.fileName
     dl1.StratPath := strat.path
@@ -1021,12 +1103,15 @@ for index, strat in LoadedStrats {
     dl1.ImgNormal := hBtnNormal
     dl1.ImgHover := hBtnHover
     GradientButtons.Push(dl1)
+    dl1.Tip := "Load strategy"
+    StratTips.Push(dl1)
 
-    ; Info (52 x 28): towers, modifiers, description
-    infoNormal := CreateGradientButton(64, 40, 8, "0xff3a404c", "0xff1d2026", "0x40000000", "0x5dffffff", "Info", "Segoe UI", 10, 1)
-    infoHover := CreateGradientButton(64, 40, 8, "0xff4d5564", "0xff292d35", "0x60000000", "0x5dffffff", "Info", "Segoe UI", 10, 1)
-    picInfo := ChildGui.Add("Picture", "x" (C1X + 480) " y" (C1Y + 60) " w64 h40 +BackgroundTrans", "HBITMAP:*" infoNormal)
-    info1 := ChildGui.Add("Text", "x" (C1X + 486) " y" (C1Y + 66) " w52 h28 +BackgroundTrans +0x200 Center", "")
+    ; Info (220 x 28): towers, modifiers, description
+    infoVisW := 220
+    infoNormal := CreateGradientButton(infoVisW + 12, 40, 8, "0xff3a404c", "0xff1d2026", "0x40000000", "0x5dffffff", "Info", "Segoe UI", 10, 1)
+    infoHover := CreateGradientButton(infoVisW + 12, 40, 8, "0xff4d5564", "0xff292d35", "0x60000000", "0x5dffffff", "Info", "Segoe UI", 10, 1)
+    picInfo := ChildGui.Add("Picture", "x" (C1X + 374) " y" (C1Y + 68) " w" (infoVisW + 12) " h40 +BackgroundTrans", "HBITMAP:*" infoNormal)
+    info1 := ChildGui.Add("Text", "x" (C1X + 380) " y" (C1Y + 74) " w" infoVisW " h28 +BackgroundTrans +0x200 Center", "")
     ; The popup re-reads the strat file when clicked, so edits (for example from the Strategy Modifiers
     ; editor) show up straight away without refreshing the library.
     info1.OnEvent("Click", ((p, st) => (*) => StratLib_ShowInfo(p, st))(strat.path, strat.stem))
@@ -1034,19 +1119,49 @@ for index, strat in LoadedStrats {
     info1.ImgNormal := infoNormal
     info1.ImgHover := infoHover
     GradientButtons.Push(info1)
+    info1.Tip := "Strategy info"
+    StratTips.Push(info1)
 
-    ; Remove (52 x 28)
+    ; Edit: pencil square (third in the column). Opens the strat file in Notepad, or opens its folder with the
+    ; file selected (to open it with any program). First click asks which; right-click it, or Shift+click, to change.
+    ; Blue gradient. The icon is the "Edit" glyph of Segoe MDL2 Assets.
+    edNormal := CreateGradientButton(36, 36, 6, "0xFF3B7BD1", "0xFF1F4A8A", "0x40000000", "0x5dffffff", Chr(0xE70F), "Segoe MDL2 Assets", 10, 1)
+    edHover := CreateGradientButton(36, 36, 6, "0xFF5A9BEF", "0xFF2F63B3", "0x60000000", "0x5dffffff", Chr(0xE70F), "Segoe MDL2 Assets", 10, 1)
+    picEd := ChildGui.Add("Picture", "x" (C1X + 4) " y" (C1Y + 70 - 6) " w36 h36 +BackgroundTrans", "HBITMAP:*" edNormal)
+    ed1 := ChildGui.Add("Text", "x" (C1X + 10) " y" (C1Y + 70) " w24 h24 +BackgroundTrans +0x200 Center", "")
+    ed1.OnEvent("Click", ((p) => (*) => StratLib_Edit(p, GetKeyState("Shift", "P")))(strat.path))
+    ed1.OnEvent("ContextMenu", ((p) => (*) => StratLib_Edit(p, true))(strat.path))
+    ed1.PicControl := picEd
+    ed1.ImgNormal := edNormal
+    ed1.ImgHover := edHover
+    GradientButtons.Push(ed1)
+    ed1.Tip := "Edit strategy`n(right-click to change program)"
+    StratTips.Push(ed1)
+
+    ; Remove: 24 x 24 trash can square at the bottom of the column, red gradient.
+    ; The icon is the "Delete" glyph of Segoe MDL2 Assets. Clicking asks for confirmation first (StratLib_Remove).
     if (strat.user) {
-        rmNormal := CreateGradientButton(64, 40, 8, "0xFFA33A48", "0xFF5C1D26", "0x40000000", "0x5dffffff", "Remove", "Segoe UI", 10, 1)
-        rmHover := CreateGradientButton(64, 40, 8, "0xFFD24A5C", "0xFF8A2A37", "0x60000000", "0x5dffffff", "Remove", "Segoe UI", 10, 1)
-        picRm := ChildGui.Add("Picture", "x" (C1X + 536) " y" (C1Y + 60) " w64 h40 +BackgroundTrans", "HBITMAP:*" rmNormal)
-        rm1 := ChildGui.Add("Text", "x" (C1X + 542) " y" (C1Y + 66) " w52 h28 +BackgroundTrans +0x200 Center", "")
+        rmNormal := CreateGradientButton(36, 36, 6, "0xFFA33A48", "0xFF5C1D26", "0x40000000", "0x5dffffff", Chr(0xE74D), "Segoe MDL2 Assets", 10, 1)
+        rmHover := CreateGradientButton(36, 36, 6, "0xFFD24A5C", "0xFF8A2A37", "0x60000000", "0x5dffffff", Chr(0xE74D), "Segoe MDL2 Assets", 10, 1)
+        picRm := ChildGui.Add("Picture", "x" (C1X + 4) " y" (C1Y + 100 - 6) " w36 h36 +BackgroundTrans", "HBITMAP:*" rmNormal)
+        rm1 := ChildGui.Add("Text", "x" (C1X + 10) " y" (C1Y + 100) " w24 h24 +BackgroundTrans +0x200 Center", "")
         rm1.OnEvent("Click", ((p, t) => (*) => StratLib_Remove(p, t))(strat.path, strat.title != "" ? strat.title : strat.stem))
         rm1.PicControl := picRm
         rm1.ImgNormal := rmNormal
         rm1.ImgHover := rmHover
         GradientButtons.Push(rm1)
+        rm1.Tip := "Remove strategy"
+        StratTips.Push(rm1)
     }
+
+    ; everything created for this card (any control not seen before)
+    for hwndC, ctrlC in ChildGui {
+        if !StratSeenHwnds.Has(hwndC) {
+            StratSeenHwnds[hwndC] := 1
+            cardRec.ctrls.Push(ctrlC)
+        }
+    }
+    StratCards.Push(cardRec)
 }
 
 if (LoadedStrats.Length == 0) {
@@ -1131,7 +1246,7 @@ global Tab2_Lbl2 := MainGui.Add("Text", "x320 y145 w80 h20 Hidden", "Mode:")
 MainGui.SetFont("s9 w400 cFFFFFF")
 global RecDiffCtrl := MainGui.Add("DropDownList", "x380 y142 w220 Hidden vRecDifficulty", [
     "Easy", "Casual", "Intermediate", "Molten", "Fallen", "Frost", 
-    "Hardcore", "Voidcore", "Pizza Party", "Badlands II", "Polluted Wasteland II", "Night", "Night4"
+    "Hardcore", "Voidcore", "Pizza Party", "Badlands II", "Polluted Wasteland II"
 ])
 
 MainGui.SetFont("s9 w400 cAAAAAA")
@@ -1550,7 +1665,14 @@ global YoutubeImg := MainGui.Add("Picture", "x642 y520 w24 h-1 Hidden Background
 YoutubeImg.OnEvent("Click", YouTubeLink)
 
 MainGui.Title := "Unlimited Macro"
-MainGui.Show("w700 h565")
+
+; Make the window UIExtra pixels taller: everything in the bottom bar (y >= 500) moves down by that much.
+for hwndM, ctrlM in MainGui {
+    ctrlM.GetPos(&mx, &my)
+    if (my >= 500)
+        ctrlM.Move(mx, my + UIExtra)
+}
+MainGui.Show("w700 h" (565 + UIExtra))
 
 if (AlwaysOnTop = 1) {
     MainGui.Opt("+AlwaysOnTop")
@@ -1635,6 +1757,7 @@ Hoverwatchdog(*) {
     }
     static activeHoverHwnd := 0
     static activeGradHwnd := 0 
+    static tipText := "", tipShown := "", tipSince := 0
     
     if (!hMain)
         hMain := MainGui.Hwnd
@@ -1702,6 +1825,12 @@ Hoverwatchdog(*) {
             }
             activeGradHwnd := 0
         }
+        ; mouse is over another window: hide any icon tooltip too
+        if (tipShown != "") {
+            ToolTip(, , , 20)
+            tipShown := ""
+        }
+        tipText := ""
         return
     }
     
@@ -1854,6 +1983,43 @@ Hoverwatchdog(*) {
             }
             activeGradHwnd := 0
         }
+    }
+
+    ; tooltips for the icon plates in the library: show after the mouse rests on a plate for a moment
+    if (IsSet(StratTips) && hChild && DllCall("IsWindowVisible", "Ptr", hChild)) {
+        newTip := ""
+        try {
+            MouseGetPos(, , &underHwnd)
+            if (DllCall("GetAncestor", "Ptr", underHwnd, "UInt", 2, "Ptr") = hMain) {
+                WinGetPos(&tipWX, &tipWY, &tipWW, &tipWH, "ahk_id " hChild)
+                tipMX := screenX - tipWX, tipMY := screenY - tipWY
+                if (tipMX >= 0 && tipMX < tipWW && tipMY >= 0 && tipMY < tipWH) {
+                    for tipC in StratTips {
+                        tipC.GetPos(&tcX, &tcY, &tcW, &tcH)
+                        if (tipMX >= tcX && tipMX < tcX + tcW && tipMY >= tcY && tipMY < tcY + tcH) {
+                            newTip := tipC.Tip
+                            break
+                        }
+                    }
+                }
+            }
+        }
+        if (newTip != tipText) {
+            tipText := newTip
+            tipSince := A_TickCount
+            if (tipShown != "") {
+                ToolTip(, , , 20)
+                tipShown := ""
+            }
+        }
+        if (tipText != "" && tipShown != tipText && A_TickCount - tipSince >= 250) {
+            ToolTip(tipText, , , 20)
+            tipShown := tipText
+        }
+    } else if (tipShown != "") {
+        ToolTip(, , , 20)
+        tipShown := ""
+        tipText := ""
     }
 }
 
@@ -2114,11 +2280,136 @@ StratLib_Refresh(*) {
     Reload()
 }
 
+; ----- list order ---------------------------------------------------------------------------
+; The order is stored in state.ini ([Library] Order = path|path|...). Anything not in it yet is appended.
+StratLib_ApplyOrder(list) {
+    global StateFile
+    saved := IniRead(StateFile, "Library", "Order", "")
+    if (saved = "" || list.Length < 2)
+        return
+    rank := Map()
+    for i, p in StrSplit(saved, "|")
+        if (p != "" && !rank.Has(StrLower(p)))
+            rank[StrLower(p)] := i
+    ; stable insertion sort by saved rank (unknown paths rank last, keeping their original order)
+    n := list.Length
+    keyOf := (st) => rank.Has(StrLower(st.path)) ? rank[StrLower(st.path)] : 1000000
+    Loop n - 1 {
+        i := A_Index + 1
+        cur := list[i], k := keyOf(cur), j := i - 1
+        while (j >= 1 && keyOf(list[j]) > k) {
+            list[j + 1] := list[j]
+            j -= 1
+        }
+        list[j + 1] := cur
+    }
+}
+
+; Shows the active or the dimmed version of a card's arrows for its position in the list.
+StratLib_SetArrows(rec, idx, total) {
+    canUp := idx > 1, canDown := idx < total
+    rec.up.pic.Visible := canUp
+    rec.up.hit.Visible := canUp
+    rec.up.off.Visible := !canUp
+    rec.down.pic.Visible := canDown
+    rec.down.hit.Visible := canDown
+    rec.down.off.Visible := !canDown
+}
+
+; Scrolls the library to newPos (same as the scroll bar / mouse wheel does).
+StratLib_ScrollTo(newPos) {
+    global ChildGui, CurrentScrollPos, ContentH, FrameH, SliderH, Slider
+    maxScroll := ContentH - FrameH
+    if (maxScroll <= 0)
+        return
+    newPos := Max(0, Min(newPos, maxScroll))
+    if (newPos = CurrentScrollPos)
+        return
+    DllCall("ScrollWindow", "Ptr", ChildGui.Hwnd, "Int", 0, "Int", CurrentScrollPos - newPos, "Ptr", 0, "Ptr", 0)
+    CurrentScrollPos := newPos
+    Slider.Move(, Round((newPos / maxScroll) * (FrameH - SliderH)))
+    DllCall("UpdateWindow", "Ptr", ChildGui.Hwnd)
+}
+
+; Moves a card one place up (dir = -1) or down (dir = 1), live: the two cards just swap places on screen.
+StratLib_Move(path, dir, *) {
+    global LoadedStrats, StratCards, StateFile, ChildGui, CardH, Gap, FrameH, CurrentScrollPos
+    pos := 0
+    for i, st in LoadedStrats
+        if (st.path = path)
+            pos := i
+    newPos := pos + dir
+    if (pos = 0 || newPos < 1 || newPos > LoadedStrats.Length)
+        return
+
+    ; swap the two cards in the data
+    tmp := LoadedStrats[pos], LoadedStrats[pos] := LoadedStrats[newPos], LoadedStrats[newPos] := tmp
+    tmp := StratCards[pos], StratCards[pos] := StratCards[newPos], StratCards[newPos] := tmp
+
+    ; ...and on screen: the clicked card (now at newPos) moves one slot, the other one moves back
+    dy := dir * (CardH + Gap)
+    for pair in [[StratCards[newPos], dy], [StratCards[pos], -dy]] {
+        for c in pair[1].ctrls {
+            c.GetPos(&cx, &cy)
+            c.Move(cx, cy + pair[2])
+        }
+    }
+    StratLib_SetArrows(StratCards[newPos], newPos, LoadedStrats.Length)
+    StratLib_SetArrows(StratCards[pos], pos, LoadedStrats.Length)
+
+    ; keep the moved card in view
+    topY := 999999
+    for c in StratCards[newPos].ctrls {
+        c.GetPos(, &cy)
+        topY := Min(topY, cy)      ; the card's frame is its topmost control
+    }
+    if (topY < 0)
+        StratLib_ScrollTo(CurrentScrollPos + topY - 15)
+    else if (topY + CardH > FrameH)
+        StratLib_ScrollTo(CurrentScrollPos + (topY + CardH - FrameH) + 15)
+
+    DllCall("RedrawWindow", "Ptr", ChildGui.Hwnd, "Ptr", 0, "Ptr", 0, "UInt", 0x185)
+
+    order := ""
+    for st in LoadedStrats
+        order .= (order = "" ? "" : "|") st.path
+    IniWrite(order, StateFile, "Library", "Order")
+}
+
+; Opens a strat file for editing. The choice is remembered in settings ([Options] StratEditor = notepad | folder).
+; First use asks: Yes = Notepad, No = open the strategy's folder with the file selected, so you can open it with
+; any program you like. chooseNew = true (right-click / Shift+click) asks again. Changes show after Refresh.
+StratLib_Edit(path, chooseNew := false, *) {
+    global SettingsFile
+    if !FileExist(path) {
+        MsgBox("This strategy file no longer exists. Press Refresh to update the library.", "Edit strategy", 0x1040)
+        return
+    }
+    mode := IniRead(SettingsFile, "Options", "StratEditor", "")
+    if (mode != "notepad" && mode != "folder")
+        mode := ""
+    if (chooseNew || mode = "") {
+        ans := MsgBox("Open strategy files with Notepad?`n`nYes = Notepad`nNo = open the strategies folder instead`n`n(Right-click the pencil any time to change this.)", "Edit strategy", 0x23)
+        if (ans = "Cancel")
+            return
+        mode := (ans = "Yes") ? "notepad" : "folder"
+        IniWrite(mode, SettingsFile, "Options", "StratEditor")
+    }
+    try {
+        if (mode = "notepad")
+            Run('notepad.exe "' path '"')
+        else
+            Run('explorer.exe /select,"' path '"')
+    } catch {
+        MsgBox("Could not open the file or folder.", "Edit strategy", 0x1010)
+    }
+}
+
 StratLib_Remove(path, title, *) {
     global Strategy1Ctrl, Strategy2Ctrl
     if StratLib_Busy()
         return
-    if (MsgBox("Remove " title "?`n`nThe file is moved to a _removed folder next to it, so you can restore it by moving it back.", "Remove strategy", 0x124) != "Yes")
+    if (MsgBox("Are you sure you want to remove this strategy?`n`n" title "`n`nThe file is moved to a _removed folder next to it, so you can restore it by moving it back.", "Confirm remove", 0x134) != "Yes")
         return
     SplitPath(path, &name, &dir, , &stem)
     trash := dir "\_removed"
@@ -2254,7 +2545,7 @@ EnableStratRotation(*) {
 
     ; The library frame follows: starts 30px higher and is 30px taller, so it still ends above Start/Stop.
     newFrameY := 262 + dy
-    newFrameH := 224 - dy
+    newFrameH := 224 + UIExtra - dy
     if (newFrameH != FrameH || newFrameY != FrameY) {
         FrameY := newFrameY
         FrameH := newFrameH
@@ -2630,8 +2921,7 @@ StopRecord(ctrl, *) {
             FileDelete(filePath)
         getRobloxPos(&pX, &pY, &currentWidth, &currentHeight)
 
-        nightLine := IsNightMode(difficulty) ? "`neventDifficulty=" : ""
-        FileAppend("[Settings]`nmap=" gamemap "`ndifficulty=" difficulty nightLine "`nrequiredTowers=" requiredTowers
+        FileAppend("[Settings]`nmap=" gamemap "`ndifficulty=" difficulty "`nrequiredTowers=" requiredTowers
             . "`nmodifiers=" Join(modifiers)
             . "`nautoChain=" autoChain "`nautoCaravan=" autoCaravan "`nautoDropTheBeat=" autoDropTheBeat
             . "`nautoSkip=" AutoSkip "`nabilitySpam=" AbilitySpam "`nmoveEnabled=" MoveEnabled "`nmoveDirection=" MoveDirection
@@ -4407,7 +4697,7 @@ HelpCheckTheMap(*) {
 LoadStrategyFile(file) {
     global Towers, RecordedSteps, gamemap, difficulty, requiredTowers, autoChain, autoCaravan
     global autoDropTheBeat, AutoSkip, AbilitySpam, MoveEnabled, MoveDirection, MoveDuration
-    global modifiers, Commander, StrategyWidth, StrategyHeight, eventDifficulty, CurrentStrategyFile
+    global modifiers, Commander, StrategyWidth, StrategyHeight, CurrentStrategyFile
 
     CurrentStrategyFile := file
 
@@ -4417,7 +4707,6 @@ LoadStrategyFile(file) {
 
     gamemap := IniRead(file, "Settings", "map", "")
     difficulty := IniRead(file, "Settings", "difficulty", "")
-    eventDifficulty := Trim(IniRead(file, "Settings", "eventDifficulty", ""))
     requiredTowers  := IniRead(file, "Settings", "requiredTowers",  "")
     autoChain := IniRead(file, "Settings", "autoChain", "OFF")
     autoCaravan := IniRead(file, "Settings", "autoCaravan", "OFF")
@@ -4601,54 +4890,20 @@ RunStrategy(stratFile := "", skipRestart := false) {
         JoinGame()
     }
 
-    ; Night restart after a loss: the green Ready button may still be hidden behind the loadout
-    ; screen, so skip waitReady(). The loadout and Ready clicks below find their own buttons.
-    if (readyX = 0 && readyY = 0 && !(IsNightMode() && IsRestarting)) {
+    if (readyX = 0 && readyY = 0) {
         waitReady()
     }
 
     if (!IsRestarting) {
-        if (IsNightMode()) {
-            ; Night: no map check. Reset the character, align the camera without moving, then settle.
-            if (!InArray(SpecialMaps, gamemap)) {
-                ActivateRoblox()
-                resetCharacter()
-                Sleep(7500)
-                AlignCamera(false)
-                NightMoveForwardLeft()
-            }
-        } else {
-            CheckTheMapF()
-            if (!InArray(SpecialMaps, gamemap)) {
-                AlignCamera()
-            }
+        CheckTheMapF()
+        if (!InArray(SpecialMaps, gamemap)) {
+            AlignCamera()
         }
     }
-
-    if (IsNightMode())
-        ClickNightLoadout()
 
     activateTimescale()
 
-    if (IsNightMode()) {
-        if !ClickNightReady() {
-            ; Failsafe: the loadout screen may still be covering Ready. Retry it once
-            ; before giving up and reloading.
-            LogToConsole("Night: Ready not found, retrying the loadout step once...", true)
-            ClickNightLoadout()
-            if !ClickNightReady() {
-                SafeReload()
-                return
-            }
-        }
-    } else {
-        ClickReady()
-    }
-
-    if (IsNightMode() && !IsRestarting && !SkipNightCutscene()) {
-        SafeReload()
-        return
-    }
+    ClickReady()
 
     PlayStrategy()
 }
@@ -4704,32 +4959,6 @@ PlayStrategy() {
 
     Click(ScaleX(unfocusX), ScaleY(unfocusY))
     LogToConsole("All strategy steps completed...")
-    if (IsNightMode()) {
-        LogToConsole("Night strategy completed: waiting for the skip button or a loss (20 min max)...")
-        NightMatchLost := false
-        ; The match can still run for several minutes after the last step, so wait long enough to
-        ; cover the whole remaining match.
-        if SkipNightCutscene(1200000, true) {
-            if ClickNightReturnToLobby() {
-                AuditLog("INFO", "Night", "Run completed - returned to lobby, starting again in 10 seconds")
-                LogToConsole("Returned to lobby: starting the Night strategy again in 10 seconds...")
-                Sleep(10000)
-                IsRestarting := false
-                RunStrategy("", true)
-                return
-            }
-        } else if (NightMatchLost) {
-            ; Lost after the strategy finished: the skip button will never show up. Run the normal
-            ; loss handling (CheckRestart): Night 4 presses Restart Match, Night 3 relaunches Roblox.
-            NightMatchLost := false
-            AuditLog("WARN", "Night", "Match lost after the strategy finished - handling the loss")
-            LogToConsole("Night match lost after the strategy finished: handling the loss...")
-            IsRestarting := false
-            Sleep(1500)  ; let the results buttons finish appearing before CheckRestart looks for them
-            RunStrategy("", false)
-            return
-        }
-    }
     Loop {
         canUseAbility := true
         LastOpenedTowerID := ""
@@ -5512,27 +5741,9 @@ CheckRestart() {
                     Sleep 5000
                 }
 
-                if (IsNightMode() && !IsNight4()) {
-                    ; Night 3: do not press Restart. Close Roblox and start the loop again.
-                    ; (Night 4 falls through and presses Restart Match below.)
-                    AuditLog("WARN", "Night", "Match lost - closing and relaunching Roblox")
-                    LogToConsole("Night match lost: closing Roblox and restarting the macro loop.")
-                    IsRestarting := false
-                    startWatchdog()
-                    CloseRoblox()
-                    RunRoblox()
-                    if (shouldEquip && AutoEquip) {
-                        EquipTowers(requiredTowers)
-                    }
-                    JoinGame()
-                    return
-                }
-
                 res := resRestart.score > resRestart2.score ? resRestart : resRestart2
                 restartFinder := () => BestRestartResult(w, h)
                 IsRestarting := true
-                if (IsNightMode())
-                    AuditLog("WARN", "Night", "Match lost - pressing Restart Match")
                 LogToConsole("Restarting the match")
                 if !(MultiplayerEnabled) { 
                     ClickResultButton(res, restartFinder, "Restart")
@@ -5795,8 +6006,6 @@ AuditAuto(text) {
 }
 
 AuditCategory(text) {
-    if RegExMatch(text, "i)^Night")
-        return "Night"
     if RegExMatch(text, "i)clone|hologram")
         return "Clone"
     if RegExMatch(text, "i)reposition|brawler")
@@ -5966,275 +6175,6 @@ AuditClear(*) {
     }
 }
 
-; ---------------------------------------------------------------------------
-; Night event support (ported from the SolarRequiem / 1.3.4a build).
-; Night 3 = Mode "Night", Night 4 = Mode "Night4" (the old name "N4" still works).
-; The strategy file must also set
-; eventDifficulty=Easy or eventDifficulty=Hard under [Settings].
-; ---------------------------------------------------------------------------
-IsNightMode(diff := "") {
-    global difficulty
-    if (diff = "")
-        diff := difficulty
-    return (diff = "Night" || IsNight4(diff))
-}
-
-IsNight4(diff := "") {
-    global difficulty
-    if (diff = "")
-        diff := difficulty
-    return (diff = "Night4" || diff = "N4")
-}
-
-SelectNightVariant() {
-    global eventDifficulty, CurrentStrategyFile, StateFile, difficulty
-
-    ; The loaded strategy file is authoritative. StateFile is only a fallback.
-    strategyFile := CurrentStrategyFile
-    stateStrategy := IniRead(StateFile, "State", "Strategy", "")
-    if (strategyFile = "" || !FileExist(strategyFile)) {
-        if (stateStrategy != "" && FileExist(stateStrategy))
-            strategyFile := stateStrategy
-    }
-    if (strategyFile = "" || !FileExist(strategyFile)) {
-        LogToConsole("Night: cannot resolve the active strategy file.", true)
-        return false
-    }
-
-    ; Never silently fall back to Easy: ambiguity must stop the run.
-    configuredDifficulty := StrLower(Trim(IniRead(strategyFile, "Settings", "eventDifficulty", "")))
-    if (configuredDifficulty != "easy" && configuredDifficulty != "hard") {
-        LogToConsole("Night: the strategy must set eventDifficulty=Easy or eventDifficulty=Hard under [Settings].", true)
-        return false
-    }
-    loadedDifficulty := StrLower(Trim(eventDifficulty))
-    if (loadedDifficulty != configuredDifficulty) {
-        LogToConsole("Night: loaded eventDifficulty (" loadedDifficulty ") does not match the strategy file (" configuredDifficulty "). Refusing to click.", true)
-        return false
-    }
-
-    targetName := (configuredDifficulty = "hard") ? "Hard" : "Easy"
-    nightPrefix := IsNight4() ? "Night4" : "Night3"
-    variantImage := "Resources/" nightPrefix targetName ".png"
-    if !FileExist(A_WorkingDir "\Resources\" nightPrefix targetName ".png") {
-        LogToConsole("Night: image not found: " variantImage, true)
-        return false
-    }
-
-    LogToConsole("Night: selecting " nightPrefix " " targetName " from the active strategy...")
-    ActivateRoblox()
-    Sleep(250)
-
-    deadline := A_TickCount + 25000
-    Loop {
-        if (A_TickCount >= deadline) {
-            LogToConsole("Night: the requested " targetName " card was not detected; no fallback click was made.", true)
-            return false
-        }
-
-        getRobloxPos(,, &rw, &rh)
-        if (rw <= 0 || rh <= 0) {
-            LogToConsole("Night: could not resolve the Roblox client size.", true)
-            return false
-        }
-
-        ; Search only the half containing the requested card.
-        searchX := (configuredDifficulty = "hard") ? Round(rw * 0.5) : 0
-        searchW := (configuredDifficulty = "hard") ? (rw - searchX) : Round(rw * 0.5)
-        res := AdvancedImageSearch(variantImage, searchX, 0, searchW, rh)
-
-        if (res.status = "success" && res.score >= 0.67) {
-            ; Click coordinates are relative to a 1920x1009 Roblox client, scaled to the current window.
-            baseX := (configuredDifficulty = "hard") ? 1100 : 813
-            baseY := (configuredDifficulty = "hard") ? 515 : 512
-            clickX := Round(baseX * (rw / 1920.0))
-            clickY := Round(baseY * (rh / 1009.0))
-
-            ; Final invariant: only click the matching side of the client.
-            correctSide := (configuredDifficulty = "hard")
-                ? (clickX >= Round(rw * 0.5) && clickX < rw)
-                : (clickX >= 0 && clickX < Round(rw * 0.5))
-            if (!correctSide || clickY < 0 || clickY >= rh) {
-                LogToConsole("Night: scaled click position is outside the requested card side; refusing to click.", true)
-                return false
-            }
-
-            ActivateRoblox()
-            Sleep(100)
-            Click(clickX, clickY)
-            Sleep(800)
-            return true
-        }
-
-        Sleep(300)
-    }
-}
-
-; True when the results screen shows the Restart button (the same check CheckRestart uses for a loss).
-NightLossScreenVisible() {
-    getRobloxPos(,, &w, &h)
-    if (w <= 0 || h <= 0)
-        return false
-    res := BestRestartResult(w, h)
-    if (res.status = "success" && res.score > 0.64)
-        return true
-    ; Fallback: the "You Lost" banner (same image and region the watchdog uses).
-    lost := AdvancedImageSearch("Resources\YouLost.png", w * 0.2, h * 0.2, w * 0.6, h * 0.7)
-    return (lost.status = "success" && lost.score > 0.7)
-}
-
-SkipNightCutscene(timeoutMs := 60000, watchLoss := false) {
-    global NightMatchLost
-    lastLossCheck := 0
-    ; The cutscene skip must be held for about 5 seconds. A hold can silently fail
-    ; (focus lost, press not registered), so after releasing, check that the button is
-    ; gone and hold again if it is still on screen.
-    deadline := A_TickCount + timeoutMs
-    holds := 0
-    Loop {
-        if (A_TickCount > deadline) {
-            if (holds > 0) {
-                LogToConsole("Night: skip button still visible after " holds " holds, continuing...")
-                return true
-            }
-            LogToConsole("Night: the cutscene skip button never appeared.")
-            return false
-        }
-        getRobloxPos(,, &rw, &rh)
-        if (rw <= 0 || rh <= 0)
-            return false
-        res := AdvancedImageSearch("Resources/hold_to_skip.png", 0, 0, rw, rh)
-        if (res.status = "success" && res.score >= 0.67) {
-            if (holds >= 3) {
-                LogToConsole("Night: skip button still visible after 3 holds, continuing...")
-                return true
-            }
-            ActivateRoblox()
-            MouseMove(res.x, res.y)
-            Sleep(150)
-            Click(res.x, res.y, "Down")
-            Sleep(5500)
-            Click(res.x, res.y, "Up")
-            holds++
-            LogToConsole("Night: held the cutscene skip button (attempt " holds ").")
-            Sleep(1000)
-            continue
-        }
-        if (holds > 0) {
-            LogToConsole("Night: cutscene skipped.")
-            return true
-        }
-        ; No skip button on screen: if the match was lost it will never appear, so look for the
-        ; loss screen (about once a second) and bail out so the caller can restart.
-        if (watchLoss && A_TickCount - lastLossCheck >= 1000) {
-            lastLossCheck := A_TickCount
-            if NightLossScreenVisible() {
-                NightMatchLost := true
-                LogToConsole("Night: loss screen detected.")
-                return false
-            }
-        }
-        Sleep(300)
-    }
-}
-
-NightMoveForwardLeft() {
-    ; Night: after aligning the camera, make sure S is released.
-    Sleep(1000)
-    SendEvent("{s up}")
-}
-
-ClickNightReturnToLobby() {
-    ; Night ends with "Return To Lobby" instead of "Play Again".
-    deadline := A_TickCount + 30000
-    Loop {
-        if (A_TickCount > deadline) {
-            LogToConsole("Night: the Return To Lobby button was not found.")
-            return false
-        }
-        getRobloxPos(,, &rw, &rh)
-        if (rw <= 0 || rh <= 0)
-            return false
-        res := AdvancedImageSearch("Resources/return_to_lobby.png", 0, 0, rw, rh)
-        if (res.status = "success" && res.score >= 0.67) {
-            ActivateRoblox()
-            Click(res.x, res.y)
-            LogToConsole("Night: clicked Return To Lobby.")
-            return true
-        }
-        Sleep(300)
-    }
-}
-
-ClickNightLoadout() {
-    ; Night shows a "Your Loadout" button before Ready, on first join and after a restart.
-    ; A single click can be swallowed (button still animating, focus not on Roblox yet),
-    ; so click, then confirm the button actually went away and click again if it did not.
-    deadline := A_TickCount + 20000
-    clicks := 0
-    Loop {
-        if (A_TickCount > deadline) {
-            if (clicks > 0) {
-                LogToConsole("Night: Your Loadout still visible after " clicks " clicks, continuing...")
-                return true
-            }
-            LogToConsole("Night: the Your Loadout button was not found, continuing...")
-            return false
-        }
-        getRobloxPos(,, &rw, &rh)
-        if (rw <= 0 || rh <= 0)
-            return false
-        res := AdvancedImageSearch("Resources/your_loadout.png", 0, 0, rw, rh)
-        if (res.status = "success" && res.score >= 0.67) {
-            if (clicks >= 5) {
-                LogToConsole("Night: Your Loadout still visible after 5 clicks, continuing...")
-                return true
-            }
-            ActivateRoblox()
-            Click(res.x, res.y)
-            clicks++
-            LogToConsole("Night: clicked Your Loadout (attempt " clicks ").")
-            Sleep(1000)
-            continue
-        }
-        if (clicks > 0) {
-            LogToConsole("Night: Your Loadout button is gone, continuing.")
-            return true
-        }
-        Sleep(300)
-    }
-}
-
-ClickNightReady() {
-    ; Night keeps the Ready button visible after the click while its cutscene plays,
-    ; so this clicks once and does not wait for the button to disappear.
-    global readyX, readyY
-    deadline := A_TickCount + 30000
-    Loop {
-        if (A_TickCount > deadline) {
-            LogToConsole("Night: the Ready button was never found.", true)
-            return false
-        }
-        getRobloxPos(,, &w, &h)
-        if (w > 0 && h > 0 && PixelSearch(&fx, &fy, Round(w * 0.4), Round(h * 0.05), Round(w * 0.7), Round(h * 0.35), 0x2BEB00, 2)) {
-            if ReadyButtonCenter(fx, fy, &cx, &cy) {
-                readyX := cx
-                readyY := cy
-            } else {
-                readyX := fx
-                readyY := fy
-            }
-            MouseMove(readyX, readyY)
-            Sleep 50
-            MouseClick()
-            Sleep 250
-            LogToConsole("Night: clicked the Ready button.")
-            return true
-        }
-        Sleep(300)
-    }
-}
-
 WaitForLobbyLoad() {
     global difficulty, MultiplayerEnabled, PlayerRole
 
@@ -6249,20 +6189,11 @@ WaitForLobbyLoad() {
                 SafeReload()
             }
             getRobloxPos(,,&w,&h)
-            if (IsNightMode()) {
-                ; Night has no map selection, so its lobby uses the game-start Ready button.
-                res := AdvancedImageSearch("Resources/ready_gs.png", Round(w * 0.4), Round(h * 0.05), Round(w * 0.3), Round(h * 0.3), 0.6, 1.7)
-            } else {
-                res := AdvancedImageSearch("Resources/Ready.png", Round(w * 0.25), Round(h * 0.66), Round(w * 0.5), Round(h * 0.34), 0.6, 1.7)
-            }
+            res := AdvancedImageSearch("Resources/Ready.png", Round(w * 0.25), Round(h * 0.66), Round(w * 0.5), Round(h * 0.34), 0.6, 1.7)
             if (res.status = "success" && res.score >= 0.7) {
                 break
             }
             Sleep(100)
-        }
-        if (IsNightMode()) {
-            ; Night has no map selection. Ready is pressed by the caller.
-            return
         }
         if (!MultiplayerEnabled || PlayerRole = "Host") {
             SelectMap(res.x, res.y)
@@ -6327,8 +6258,6 @@ JoinGame() {
 
     if (difficulty = "Pizza Party" || difficulty = "Badlands II" || difficulty = "Polluted Wasteland II") {
         modeImg := "SpecialMode.png"
-    } else if (IsNightMode()) {
-        modeImg := ""
     } else {
         modeImg := "Survival.png"
     }
@@ -6376,20 +6305,14 @@ JoinGame() {
                 }
             }
         }
-        diffImg := IsNightMode() ? (IsNight4() ? "Night4" : "Night3") : difficulty
-        res := AdvancedImageSearch("Resources/" diffImg ".png", 0, 0, w, h)
-        if (res.status = "success" && res.score >= (IsNightMode() ? 0.67 : 0.7)) {
+        res := AdvancedImageSearch("Resources/" difficulty ".png", 0, 0, w, h)
+        if (res.status = "success" && res.score >= 0.7) {
             Click(res.x, res.y)
             break 
         }
         Sleep(100)
     }
     Sleep(300)
-
-    if (IsNightMode() && !SelectNightVariant()) {
-        SafeReload()
-        return
-    }
 
     startTime := A_TickCount
     Loop {
@@ -9080,7 +9003,7 @@ InArray(arr, value) {
     return false
 }
 
-CreateGradientButton(w, h, r, colorStart, colorEnd, shadowColor, strokeColor, btnText := "...", textFont := "Segoe UI", textSize := 12, gradientDirection := 0) {
+CreateGradientButton(w, h, r, colorStart, colorEnd, shadowColor, strokeColor, btnText := "...", textFont := "Segoe UI", textSize := 12, gradientDirection := 0, textColor := "0xFFFFFFFF") {
     hdc := GetDC(0)
     hbm := CreateDIBSection(w, h)
     hdcMem := CreateCompatibleDC()
@@ -9135,7 +9058,7 @@ CreateGradientButton(w, h, r, colorStart, colorEnd, shadowColor, strokeColor, bt
     Gdip_DeleteBrush(pBrushTxtShadow)
     
     NumPut("float", bx, "float", by, "float", bw, "float", bh, RC)
-    pBrushTxtMain := Gdip_BrushCreateSolid("0xFFFFFFFF")
+    pBrushTxtMain := Gdip_BrushCreateSolid(textColor)
     
     Gdip_DrawString(G, btnText, hFont, hFormat, pBrushTxtMain, &RC)
     Gdip_DeleteBrush(pBrushTxtMain)
