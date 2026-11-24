@@ -1027,13 +1027,9 @@ for index, strat in LoadedStrats {
     infoHover := CreateGradientButton(64, 40, 8, "0xff4d5564", "0xff292d35", "0x60000000", "0x5dffffff", "Info", "Segoe UI", 10, 1)
     picInfo := ChildGui.Add("Picture", "x" (C1X + 480) " y" (C1Y + 60) " w64 h40 +BackgroundTrans", "HBITMAP:*" infoNormal)
     info1 := ChildGui.Add("Text", "x" (C1X + 486) " y" (C1Y + 66) " w52 h28 +BackgroundTrans +0x200 Center", "")
-    info1.OnEvent("Click", ((t, a, r, m, d) => (*) => StratInfo(t, a, r, m, d))(
-        strat.title != "" ? strat.title : strat.stem,
-        strat.author != "" ? strat.author : "Unknown",
-        strat.towers != "" ? strat.towers : "none",
-        (strat.modifiers != "" ? strat.modifiers : "none"),
-        strat.desc
-    ))
+    ; The popup re-reads the strat file when clicked, so edits (for example from the Strategy Modifiers
+    ; editor) show up straight away without refreshing the library.
+    info1.OnEvent("Click", ((p, st) => (*) => StratLib_ShowInfo(p, st))(strat.path, strat.stem))
     info1.PicControl := picInfo
     info1.ImgNormal := infoNormal
     info1.ImgHover := infoHover
@@ -9310,6 +9306,20 @@ Gdip_CreateRoundRectanglePath(x, y, w, h, r) {
     DllCall("gdiplus\GdipAddPathArc", "ptr", pPath, "float", x, "float", y+h-r*2, "float", r*2, "float", r*2, "float", 90, "float", 90)
     DllCall("gdiplus\GdipClosePathFigure", "ptr", pPath)
     return pPath
+}
+
+; Opens the Info popup for a strat, reading its current values from the file.
+StratLib_ShowInfo(path, stem := "") {
+    if !FileExist(path) {
+        MsgBox("This strategy file no longer exists. Press Refresh to update the library.", "Strategy Info", 0x1040)
+        return
+    }
+    title := IniRead(path, "Info", "title", "")
+    author := IniRead(path, "Info", "author", "")
+    towers := IniRead(path, "Settings", "requiredTowers", "")
+    mods := IniRead(path, "Settings", "modifiers", "")
+    desc := IniRead(path, "Info", "desc", "")
+    StratInfo(title != "" ? title : stem, author != "" ? author : "Unknown", towers != "" ? towers : "none", mods != "" ? mods : "none", desc)
 }
 
 StratInfo(title := "unknown strat", author := "darksen", RequiredTowrs := "error", modifs := "none", desc := "") {
