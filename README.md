@@ -23,7 +23,7 @@ Automation macro for Roblox **Tower Defense Simulator**. Record strategies, repl
 - Strategies are stored in the `Strategies` folder next to `Main.ahk` and displayed as cards showing game mode, coins, gems and unit EXP.
 - **Add** imports a `.strat` file, **Open folder** browses the library, **Refresh** reloads it, and **Remove** deletes a strategy.
 - Strategies you record appear alongside imported ones (saved in `%AppData%\Unlimited_Macro\Recordings`).
-- **Strategy Modifiers editor** – Toggle modifiers (Glass, Hidden, Exploding, and more) and the `modifiers=` line of the selected strategy is updated automatically. A one-time `.bak` backup is created before the first edit.
+- **Modifier editor** – Open a strategy's **Info** window, press **Edit** next to *Modifiers*, click the modifier icons to turn them on or off (off = grayscale), then press **Save changes**. The `modifiers=` line of that strategy is updated.
 
 ### Reward Detection
 End-of-match Coins, Gems and EXP are read through a multi-step pipeline whose results are cross-checked:

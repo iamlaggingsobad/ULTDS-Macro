@@ -35,6 +35,8 @@ if (A_PtrSize == 4) {
 #Include lib\JSON.ahk
 #Include lib\Discord.ahk
 #Include lib\MapDatabase.ahk
+#Include lib\TowerDatabase.ahk
+#Include lib\ModifierDatabase.ahk
 
 command_buffer := []
 
@@ -88,11 +90,6 @@ global WebhookUserID := IniRead(SettingsFile, "Webhook", "WebhookUserID", "")
 global PingOnWin := Integer(IniRead(SettingsFile, "Webhook", "PingOnWin", 0))
 global PingOnLoss := Integer(IniRead(SettingsFile, "Webhook", "PingOnLoss", 0))
 global PingOnTimescale := Integer(IniRead(SettingsFile, "Webhook", "PingOnTimescale", 0))
-global ModGui := 0
-global ModStratPath := ""
-global ModLastCodes := ""
-global ModifierCheckboxes := []
-global ModifiersTextCtrl := 0
 global WebhookEnabled := IniRead(SettingsFile, "Webhook", "Enabled", 0)
 global PotatoMode := IniRead(SettingsFile, "Options", "PotatoMode", 0)
 global SendCurrenciesEnabled := IniRead(SettingsFile, "Webhook", "SendCurrencies", "1")
@@ -758,9 +755,6 @@ Tab1_RefreshBtn.OnEvent("Click", StratLib_Refresh)
 HoverEffect.Push(Tab1_AddBtn)
 HoverEffect.Push(Tab1_FolderBtn)
 HoverEffect.Push(Tab1_RefreshBtn)
-global Tab1_ModBtn := MainGui.Add("Text", "x305 y223 w130 h22 +Border 0x200 Center", "Strategy Modifiers")
-Tab1_ModBtn.OnEvent("Click", ShowModifiersGui)
-HoverEffect.Push(Tab1_ModBtn)
 
 
 LoadedStrats := []
@@ -929,6 +923,18 @@ StratLib_ApplyOrder(LoadedStrats)
 
 ; Every card's controls are remembered (StratCards) so the arrows can move cards around live, without a reload.
 global StratCards := []
+global StratInfoGui := 0     ; the open Info window, if any
+global StratInfoTiles := []     ; hover areas of the unit squares in the open Info window
+global StratInfoTipShown := ""    ; unit name currently shown as a tooltip
+global StratInfoTipSince := 0, StratInfoTipLast := ""
+global StratInfoW := 460
+global StratInfoPath := "", StratInfoEdit := false     ; strat file shown in the Info window, and whether modifiers are being edited
+global StratInfoMods := Map(), StratInfoModsOrig := Map(), StratInfoExtras := []   ; working / saved modifier codes, unknown tokens kept as written
+global StratInfoModTiles := []                          ; the 12 modifier squares: {x, y, w, h, code, plate, icon, bmpOn, bmpOff}
+global StratInfoHead := 0, StratInfoEditPic := 0, StratInfoSavePic := 0
+global StratInfoEditBmps := [0, 0], StratInfoEditRect := [0, 0, 0, 0], StratInfoSaveRect := [0, 0, 0, 0]
+global StratInfoLower := [], StratInfoBaseH := 0       ; controls below the modifiers (moved down while editing), window height
+global StratInfoBitmaps := []   ; tile bitmaps of the open Info window, freed when it closes
 global StratTips := []      ; invisible hover areas over the icon plates (each has a .Tip text), see Hoverwatchdog
 StratSeenHwnds := Map()
 
@@ -1112,8 +1118,8 @@ for index, strat in LoadedStrats {
     infoHover := CreateGradientButton(infoVisW + 12, 40, 8, "0xff4d5564", "0xff292d35", "0x60000000", "0x5dffffff", "Info", "Segoe UI", 10, 1)
     picInfo := ChildGui.Add("Picture", "x" (C1X + 374) " y" (C1Y + 68) " w" (infoVisW + 12) " h40 +BackgroundTrans", "HBITMAP:*" infoNormal)
     info1 := ChildGui.Add("Text", "x" (C1X + 380) " y" (C1Y + 74) " w" infoVisW " h28 +BackgroundTrans +0x200 Center", "")
-    ; The popup re-reads the strat file when clicked, so edits (for example from the Strategy Modifiers
-    ; editor) show up straight away without refreshing the library.
+    ; The popup re-reads the strat file when clicked, so edits made in it (the modifier editor) and in the file
+    ; show up straight away without refreshing the library.
     info1.OnEvent("Click", ((p, st) => (*) => StratLib_ShowInfo(p, st))(strat.path, strat.stem))
     info1.PicControl := picInfo
     info1.ImgNormal := infoNormal
@@ -2041,7 +2047,7 @@ ShowTabContent(tab) {
     if (tab = "Tab1") {
         for ctrl in [Tab1_Section1, Tab1_Line1, Tab1_Lbl1, Strategy1Ctrl, Tab1_Btn1, Tab1_Btn2,
                      Tab1_Lbl2, Strategy2Ctrl, Tab1_Btn3, Tab1_Btn4, RotateStrategiesCtrl, AutoEquipCtrl, Tab1_Lbl3, TimeScaleModeCtrl, Tab1_Section2, Tab1_Line2,
-                     Tab1_AddBtn, Tab1_FolderBtn, Tab1_RefreshBtn, Tab1_ModBtn,
+                     Tab1_AddBtn, Tab1_FolderBtn, Tab1_RefreshBtn,
                      Tab1_Start, Tab1_Stop]
             ctrl.Visible := true
         TimeScaleModeCtrl.Text := TimeScaleMode
@@ -2126,8 +2132,10 @@ NormalizeRewardSize(value) {
 ; never taken from here: it always comes from the strat file.
 RewardTiers(kind) {
     static tiers := Map(
-        "coins", [["small", 0], ["medium", 1000], ["large", 1500], ["largest", 2500]],
-        "gems",  [["small", 0], ["medium", 100], ["large", 200], ["largest", 400]]
+        ; coins: small up to 450, medium 451-1000, large 1001+ (no "largest" from an amount)
+        ; gems:  small up to 45, medium 46-150, large 151-400, largest 401+
+        "coins", [["small", 0], ["medium", 451], ["large", 1001]],
+        "gems",  [["small", 0], ["medium", 46], ["large", 151], ["largest", 401]]
     )
     return tiers.Has(kind) ? tiers[kind] : []
 }
@@ -2540,7 +2548,7 @@ EnableStratRotation(*) {
     for item in [[RotateStrategiesCtrl, 190], [SwapAfterLbl, 188], [SwapAmountCtrl, 186], [SwapUnitCtrl, 186],
                  [Tab1_Lbl3, 192], [TimeScaleModeCtrl, 187],
                  [Tab1_Section2, 223], [Tab1_Line2, 250],
-                 [Tab1_AddBtn, 223], [Tab1_FolderBtn, 223], [Tab1_RefreshBtn, 223], [Tab1_ModBtn, 223]]
+                 [Tab1_AddBtn, 223], [Tab1_FolderBtn, 223], [Tab1_RefreshBtn, 223]]
         item[1].Move(, item[2] + dy)
 
     ; The library frame follows: starts 30px higher and is 30px taller, so it still ends above Start/Stop.
@@ -9231,10 +9239,10 @@ Gdip_CreateRoundRectanglePath(x, y, w, h, r) {
     return pPath
 }
 
-; Opens the Info popup for a strat, reading its current values from the file.
+; Opens the Info window for a strat, reading its current values from the file.
 StratLib_ShowInfo(path, stem := "") {
     if !FileExist(path) {
-        MsgBox("This strategy file no longer exists. Press Refresh to update the library.", "Strategy Info", 0x1040)
+        StratInfo("Strategy not found", "", "", "", "This strategy file no longer exists. Press Refresh to update the library.", "E5484D")
         return
     }
     title := IniRead(path, "Info", "title", "")
@@ -9242,22 +9250,441 @@ StratLib_ShowInfo(path, stem := "") {
     towers := IniRead(path, "Settings", "requiredTowers", "")
     mods := IniRead(path, "Settings", "modifiers", "")
     desc := IniRead(path, "Info", "desc", "")
-    StratInfo(title != "" ? title : stem, author != "" ? author : "Unknown", towers != "" ? towers : "none", mods != "" ? mods : "none", desc)
+    mode := IniRead(path, "Settings", "difficulty", "")
+    accent := mode != "" ? ModeColorHex(SpecialModeName(mode) != "" ? SpecialModeName(mode) : mode) : "3A86FF"
+    StratInfo(title != "" ? title : stem, author != "" ? author : "Unknown", towers, mods, desc, accent, path)
 }
 
-StratInfo(title := "unknown strat", author := "darksen", RequiredTowrs := "error", modifs := "none", desc := "") {
-    text := title " by " author "`n"
-    text .= "-----------------------------------------`n`n"
-    text .= "Required towers:`t" RequiredTowrs "`n"
-    text .= "Modifiers:`t" modifs "`n`n"
-    
-    if (desc != "")
-        text .= desc "`n`n"
-        
-    text .= "-----------------------------------------`n"
-    text .= "* To edit the strategy, open the strat file in the notepad.`n"
+StratInfo_Close(*) {
+    global StratInfoGui, StratInfoTiles, StratInfoTipShown, StratInfoTipLast, StratInfoBitmaps
+    global StratInfoPath, StratInfoEdit, StratInfoModTiles, StratInfoHead, StratInfoEditPic, StratInfoSavePic, StratInfoLower
+    SetTimer(StratInfo_Hover, 0)
+    try OnMessage(0x0201, StratInfo_Click, 0)
+    try ToolTip(, , , 19)
+    StratInfoTipShown := "", StratInfoTipLast := ""
+    StratInfoTiles := [], StratInfoModTiles := [], StratInfoLower := []
+    StratInfoPath := "", StratInfoEdit := false
+    StratInfoHead := 0, StratInfoEditPic := 0, StratInfoSavePic := 0
+    if (StratInfoGui) {
+        try StratInfoGui.Destroy()
+        StratInfoGui := 0
+    }
+    for hbm in StratInfoBitmaps
+        try DeleteObject(hbm)
+    StratInfoBitmaps := []
+}
 
-    MsgBox(text, "Strategy Info | " title, 0x1040)
+; Mouse clicks inside the Info window. Handled here (not with per-control Click events) so the X and the drag bar
+; always respond, whichever control is under the cursor. Click the X (top right) to close; drag the top bar to move.
+StratInfo_Click(wParam, lParam, msg, hwnd) {
+    global StratInfoGui, StratInfoW, StratInfoPath, StratInfoEdit, StratInfoMods, StratInfoModTiles, StratInfoEditRect, StratInfoSaveRect
+    if (!StratInfoGui)
+        return
+    try {
+        if (DllCall("GetAncestor", "Ptr", hwnd, "UInt", 2, "Ptr") != StratInfoGui.Hwnd)
+            return
+    } catch {
+        return
+    }
+    pt := Buffer(8, 0)
+    DllCall("GetCursorPos", "Ptr", pt)
+    DllCall("ScreenToClient", "Ptr", StratInfoGui.Hwnd, "Ptr", pt)
+    x := NumGet(pt, 0, "Int"), y := NumGet(pt, 4, "Int")
+    if (y >= 0 && y < 38) {
+        if (x >= StratInfoW - 42) {
+            SetTimer(StratInfo_Close, -1)
+        } else {
+            PostMessage(0xA1, 2, , , StratInfoGui)
+        }
+        return 1
+    }
+    if (StratInfoPath = "")
+        return
+    ; Edit / Cancel button next to the MODIFIERS heading
+    if (StratInfo_Hit(StratInfoEditRect, x, y)) {
+        StratInfo_SetEdit(!StratInfoEdit)
+        return 1
+    }
+    if (!StratInfoEdit)
+        return
+    if (StratInfo_Hit(StratInfoSaveRect, x, y)) {
+        StratInfo_SaveMods()
+        return 1
+    }
+    ; while editing, a click on a modifier square turns it on or off
+    for tile in StratInfoModTiles {
+        if (StratInfo_Hit([tile.x, tile.y, tile.w, tile.h], x, y)) {
+            if (StratInfoMods.Has(tile.code))
+                StratInfoMods.Delete(tile.code)
+            else
+                StratInfoMods[tile.code] := true
+            StratInfo_SetTile(tile, StratInfoMods.Has(tile.code))
+            StratInfo_Redraw()
+            return 1
+        }
+    }
+}
+
+StratInfo_Hit(r, x, y) {
+    return x >= r[1] && x < r[1] + r[3] && y >= r[2] && y < r[2] + r[4]
+}
+
+StratInfo_Redraw() {
+    global StratInfoGui
+    if (StratInfoGui)
+        DllCall("RedrawWindow", "Ptr", StratInfoGui.Hwnd, "Ptr", 0, "Ptr", 0, "UInt", 0x185)   ; invalidate + erase + children + update now
+}
+
+; Shows a modifier square in its on (colour icon, bright plate) or off (grayscale icon, dark plate) look.
+StratInfo_SetTile(tile, isOn) {
+    if (tile.plateOn)
+        tile.plate.Value := "HBITMAP:*" (isOn ? tile.plateOn : tile.plateOff)
+    ctrl := tile.icon ? tile.icon : tile.plate
+    ctrl.Value := "HBITMAP:*" (isOn ? tile.bmpOn : tile.bmpOff)
+}
+
+; Switches the modifier editor on or off. Switching it off throws away changes that were not saved.
+StratInfo_SetEdit(on) {
+    global StratInfoGui, StratInfoW, StratInfoEdit, StratInfoMods, StratInfoModsOrig, StratInfoModTiles, StratInfoHead
+    global StratInfoEditPic, StratInfoSavePic, StratInfoEditBmps, StratInfoLower, StratInfoBaseH
+    if (!StratInfoGui)
+        return
+    StratInfoEdit := on
+    if (!on) {
+        StratInfoMods := StratInfoModsOrig.Clone()
+        for tile in StratInfoModTiles
+            StratInfo_SetTile(tile, StratInfoMods.Has(tile.code))
+    }
+    StratInfoHead.Text := on ? "MODIFIERS  -  CLICK AN ICON TO TURN IT ON OR OFF" : "MODIFIERS"
+    StratInfoEditPic.Value := "HBITMAP:*" StratInfoEditBmps[on ? 2 : 1]
+    StratInfoSavePic.Visible := on
+    ; the Save button needs room: everything below the modifiers moves down while editing
+    dy := on ? 44 : 0
+    for item in StratInfoLower
+        item[1].Move(, item[2] + dy)
+    StratInfoGui.Show("w" StratInfoW " h" (StratInfoBaseH + dy) " NA")
+    StratInfo_Redraw()
+}
+
+; Writes the working modifier set into the strat file's modifiers= line (standard modifiers in list order, then any
+; unknown entries that were already in the file, unchanged).
+StratInfo_SaveMods() {
+    global StratInfoPath, StratInfoMods, StratInfoModsOrig, StratInfoExtras, StratInfoHead
+    parts := []
+    for m in ModifierList() {
+        if (StratInfoMods.Has(m[2]))
+            parts.Push(m[2])
+    }
+    for e in StratInfoExtras
+        parts.Push(e)
+    str := ""
+    for idx, c in parts
+        str .= (idx = 1 ? "" : ", ") c
+    if (SaveModifiersToStrategyFile(StratInfoPath, str)) {
+        StratInfoModsOrig := StratInfoMods.Clone()
+        StratInfo_SetEdit(false)
+        StratInfoHead.Text := "MODIFIERS  -  SAVED"
+    } else {
+        StratInfoHead.Text := "MODIFIERS  -  COULD NOT SAVE"
+    }
+    StratInfo_Redraw()
+}
+
+; Shows the unit's name as a tooltip while the mouse rests on one of the unit squares.
+StratInfo_Hover() {
+    global StratInfoGui, StratInfoTiles, StratInfoTipShown, StratInfoTipSince, StratInfoTipLast
+    if (!StratInfoGui) {
+        SetTimer(StratInfo_Hover, 0)
+        return
+    }
+    name := ""
+    try {
+        MouseGetPos(, , &winHwnd)
+        if (winHwnd = StratInfoGui.Hwnd) {
+            pt := Buffer(8, 0)
+            DllCall("GetCursorPos", "Ptr", pt)
+            DllCall("ScreenToClient", "Ptr", StratInfoGui.Hwnd, "Ptr", pt)
+            mx := NumGet(pt, 0, "Int"), my := NumGet(pt, 4, "Int")
+            for tile in StratInfoTiles {
+                if (mx >= tile["x"] && mx < tile["x"] + tile["w"] && my >= tile["y"] && my < tile["y"] + tile["h"]) {
+                    name := tile["name"]
+                    break
+                }
+            }
+        }
+    }
+    if (name != StratInfoTipLast) {
+        StratInfoTipLast := name
+        StratInfoTipSince := A_TickCount
+        if (StratInfoTipShown != "") {
+            ToolTip(, , , 19)
+            StratInfoTipShown := ""
+        }
+    }
+    if (name != "" && StratInfoTipShown != name && A_TickCount - StratInfoTipSince >= 120) {
+        ToolTip(name, , , 19)
+        StratInfoTipShown := name
+    }
+}
+
+; Loads an icon file and returns an HBITMAP of exactly size x size pixels (transparent background), scaled with
+; high-quality bicubic filtering and kept in proportion. A Picture control that scales an image itself looks blocky;
+; handing it a bitmap that is already the right size keeps the icon sharp. Returns 0 when the file cannot be read.
+StratInfo_IconBitmap(path, size, gray := false) {
+    pSrc := Gdip_CreateBitmapFromFile(path)
+    if (!pSrc)
+        return 0
+    Gdip_GetImageDimensions(pSrc, &iw, &ih)
+    if (iw < 1 || ih < 1) {
+        Gdip_DisposeImage(pSrc)
+        return 0
+    }
+    scale := Min(size / iw, size / ih)
+    dw := Max(1, Round(iw * scale)), dh := Max(1, Round(ih * scale))
+    dx := (size - dw) // 2, dy := (size - dh) // 2
+    hbm := CreateDIBSection(size, size)
+    hdcMem := CreateCompatibleDC()
+    obm := SelectObject(hdcMem, hbm)
+    G := Gdip_GraphicsFromHDC(hdcMem)
+    Gdip_SetInterpolationMode(G, 7)     ; high-quality bicubic
+    Gdip_SetSmoothingMode(G, 4)
+    Gdip_SetPixelOffsetMode(G, 2)       ; high quality, avoids a half-pixel shift at the edges
+    ; gray = true draws the icon in grayscale (used for modifiers that are switched off)
+    grayMatrix := "0.299|0.299|0.299|0|0|0.587|0.587|0.587|0|0|0.114|0.114|0.114|0|0|0|0|0|1|0|0|0|0|0|1"
+    if (gray)
+        Gdip_DrawImage(G, pSrc, dx, dy, dw, dh, 0, 0, iw, ih, grayMatrix)
+    else
+        Gdip_DrawImage(G, pSrc, dx, dy, dw, dh, 0, 0, iw, ih)
+    Gdip_DeleteGraphics(G)
+    SelectObject(hdcMem, obm)
+    DeleteDC(hdcMem)
+    Gdip_DisposeImage(pSrc)
+    return hbm
+}
+
+; The Required Towers section: always five equally spaced squares, drawn like the library's icon plates (rounded, soft
+; shadow, light-to-dark gradient). Every square uses the same plain dark plate (no rarity colour); a filled square shows
+; the tower's icon (or its initials when no icon file exists); hover a square for the tower's name. Advances y.
+StratInfo_Units(g, raw, &y, pad, innerW) {
+    global StratInfoTiles, StratInfoBitmaps
+    g.SetFont("s8 w700 c6F7785", "Segoe UI")
+    g.Add("Text", "x" pad " y" y " w" innerW " h14 +BackgroundTrans", "REQUIRED TOWERS")
+    y += 22
+    items := []
+    for tok in StrSplit(RegExReplace(raw, "[;|]", ","), ",", " `t") {
+        if (tok != "")
+            items.Push(tok)
+    }
+    n := 5, gap := 8
+    sz := (innerW - gap * (n - 1)) // n
+    x0 := pad + (innerW - (sz * n + gap * (n - 1))) // 2
+    ; the bitmaps carry a 6px shadow margin on every side, so they are drawn 12px larger and placed 6px up/left
+    hEmpty := CreateGradientButton(sz + 12, sz + 12, 10, "0xff2f353f", "0xff15171b", "0xff000000", "0x232c3a50", "", "Segoe UI", 10, 1)
+    StratInfoBitmaps.Push(hEmpty)
+    hFilled := CreateGradientButton(sz + 12, sz + 12, 10, "0xff2f353f", "0xff15171b", "0x40000000", "0x5dffffff", "", "Segoe UI", 10, 1)
+    StratInfoBitmaps.Push(hFilled)
+    Loop n {
+        i := A_Index
+        tx := x0 + (i - 1) * (sz + gap)
+        if (i > items.Length) {
+            g.Add("Picture", "x" (tx - 6) " y" (y - 6) " w" (sz + 12) " h" (sz + 12) " +BackgroundTrans", "HBITMAP:*" hEmpty)
+            continue
+        }
+        name := TowerDisplayName(items[i])
+        img := TowerIconPath(name)
+        if (img != "") {
+            hTile := hFilled
+        } else {
+            hTile := CreateGradientButton(sz + 12, sz + 12, 10, "0xff2f353f", "0xff15171b", "0x40000000", "0x5dffffff", TowerInitials(name), "Segoe UI", 16, 1, "0xFFB8BEC8")
+            StratInfoBitmaps.Push(hTile)
+        }
+        g.Add("Picture", "x" (tx - 6) " y" (y - 6) " w" (sz + 12) " h" (sz + 12) " +BackgroundTrans", "HBITMAP:*" hTile)
+        if (img != "") {
+            isz := sz - 8
+            hIcon := StratInfo_IconBitmap(img, isz)
+            if (hIcon) {
+                StratInfoBitmaps.Push(hIcon)
+                g.Add("Picture", "x" (tx + 4) " y" (y + 4) " w" isz " h" isz " +BackgroundTrans", "HBITMAP:*" hIcon)
+            } else {
+                g.Add("Picture", "x" (tx + 4) " y" (y + 4) " w" isz " h" isz " +BackgroundTrans", img)
+            }
+        }
+        StratInfoTiles.Push(Map("x", tx, "y", y, "w", sz, "h", sz, "name", name))
+    }
+    y += sz + 20
+}
+
+; The Modifiers section: all 12 modifiers as 6 x 2 equally spaced squares. A modifier the strat uses is shown in
+; colour on a brighter plate, one it does not use is shown in grayscale on a darker plate (some icons, like Fog, look
+; the same in colour and grayscale, so the plate colour is what tells on from off). Icons come from Resources\Images\ModifierIcons\ (the square shows
+; the modifier's short code until the file exists). Hover a square for its name. With canEdit, an Edit button next to
+; the heading lets the user click squares to turn modifiers on or off, and a Save changes button writes them to the
+; strat file. Advances y.
+StratInfo_Modifiers(g, raw, &y, pad, innerW, canEdit) {
+    global StratInfoTiles, StratInfoBitmaps, StratInfoMods, StratInfoModsOrig, StratInfoExtras, StratInfoModTiles
+    global StratInfoHead, StratInfoEditPic, StratInfoSavePic, StratInfoEditBmps, StratInfoEditRect, StratInfoSaveRect
+    g.SetFont("s8 w700 c6F7785", "Segoe UI")
+    StratInfoHead := g.Add("Text", "x" pad " y" y " w" (innerW - 72) " h14 Background121212", "MODIFIERS")
+    if (canEdit) {
+        ex := pad + innerW - 64, ey := y - 5
+        hEdit := CreateGradientButton(76, 36, 6, "0xFF3B7BD1", "0xFF1F4A8A", "0x40000000", "0x5dffffff", "Edit", "Segoe UI", 9, 1)
+        hCancel := CreateGradientButton(76, 36, 6, "0xff3a404c", "0xff1d2026", "0x40000000", "0x5dffffff", "Cancel", "Segoe UI", 9, 1)
+        StratInfoBitmaps.Push(hEdit, hCancel)
+        StratInfoEditBmps := [hEdit, hCancel]
+        StratInfoEditPic := g.Add("Picture", "x" (ex - 6) " y" (ey - 6) " w76 h36 +BackgroundTrans", "HBITMAP:*" hEdit)
+        StratInfoEditRect := [ex, ey, 64, 24]
+    }
+    y += 22
+
+    ; which modifiers the strat has: standard ones by code, anything else is kept as written when saving
+    known := Map()
+    for m in ModifierList()
+        known[m[2]] := true
+    StratInfoMods := Map(), StratInfoExtras := [], StratInfoModTiles := []
+    for tok in StrSplit(RegExReplace(raw, "[;|]", ","), ",", " `t") {
+        if (tok = "" || StrLower(tok) = "none")
+            continue
+        c := NormalizeModifierToken(tok)
+        if (known.Has(c))
+            StratInfoMods[c] := true
+        else
+            StratInfoExtras.Push(tok)
+    }
+    StratInfoModsOrig := StratInfoMods.Clone()
+
+    cols := 6, rows := 2, gap := 8
+    sz := (innerW - gap * (cols - 1)) // cols
+    x0 := pad + (innerW - (sz * cols + gap * (cols - 1))) // 2
+    ; the bitmaps carry a 6px shadow margin on every side, so they are drawn 12px larger and placed 6px up/left
+    onTop := "0xff5d7396", onBottom := "0xff33425f", onStroke := "0x80ffffff"        ; on: brighter
+    offTop := "0xff1b1e23", offBottom := "0xff0d0e10", offStroke := "0x14ffffff"     ; off: darker
+    hPlateOn := CreateGradientButton(sz + 12, sz + 12, 10, onTop, onBottom, "0x40000000", onStroke, "", "Segoe UI", 10, 1)
+    hPlateOff := CreateGradientButton(sz + 12, sz + 12, 10, offTop, offBottom, "0x40000000", offStroke, "", "Segoe UI", 10, 1)
+    StratInfoBitmaps.Push(hPlateOn, hPlateOff)
+    for idx, m in ModifierList() {
+        isOn := StratInfoMods.Has(m[2])
+        tx := x0 + Mod(idx - 1, cols) * (sz + gap)
+        ty := y + ((idx - 1) // cols) * (sz + gap)
+        tile := {x: tx, y: ty, w: sz, h: sz, code: m[2], plate: 0, icon: 0, bmpOn: 0, bmpOff: 0, plateOn: 0, plateOff: 0}
+        imgOn := ModifierIconPath(m[1], false)
+        imgOff := ModifierIconPath(m[1], true)
+        bOn := 0, bOff := 0
+        if (imgOn != "") {
+            bOn := StratInfo_IconBitmap(imgOn, sz - 8, false)
+            bOff := StratInfo_IconBitmap(imgOff, sz - 8, !InStr(imgOff, "_Gray.png"))   ; no _Gray file: grayscale on the fly
+        }
+        if (bOn && bOff) {
+            StratInfoBitmaps.Push(bOn, bOff)
+            tile.bmpOn := bOn, tile.bmpOff := bOff
+            tile.plateOn := hPlateOn, tile.plateOff := hPlateOff
+            tile.plate := g.Add("Picture", "x" (tx - 6) " y" (ty - 6) " w" (sz + 12) " h" (sz + 12) " +BackgroundTrans", "HBITMAP:*" (isOn ? hPlateOn : hPlateOff))
+            tile.icon := g.Add("Picture", "x" (tx + 4) " y" (ty + 4) " w" (sz - 8) " h" (sz - 8) " +BackgroundTrans", "HBITMAP:*" (isOn ? bOn : bOff))
+        } else {
+            ; no icon yet: the plate shows the modifier's short code (white on the bright plate when on, grey on the dark plate when off)
+            tile.bmpOn := CreateGradientButton(sz + 12, sz + 12, 10, onTop, onBottom, "0x40000000", onStroke, StrUpper(m[2]), "Segoe UI", 11, 1, "0xFFFFFFFF")
+            tile.bmpOff := CreateGradientButton(sz + 12, sz + 12, 10, offTop, offBottom, "0x40000000", offStroke, StrUpper(m[2]), "Segoe UI", 11, 1, "0xFF6F7785")
+            StratInfoBitmaps.Push(tile.bmpOn, tile.bmpOff)
+            tile.plate := g.Add("Picture", "x" (tx - 6) " y" (ty - 6) " w" (sz + 12) " h" (sz + 12) " +BackgroundTrans", "HBITMAP:*" (isOn ? tile.bmpOn : tile.bmpOff))
+        }
+        StratInfoModTiles.Push(tile)
+        StratInfoTiles.Push(Map("x", tx, "y", ty, "w", sz, "h", sz, "name", m[3]))
+    }
+    y += rows * sz + (rows - 1) * gap
+
+    ; Save changes (only visible while editing; the window grows by 44px to fit it)
+    if (canEdit) {
+        saveY := y + 12
+        hSave := CreateGradientButton(innerW + 12, 44, 8, "0xFF147A6E", "0xFF214B75", "0x40000000", "0x5dffffff", "Save changes", "Segoe UI", 11, 1)
+        StratInfoBitmaps.Push(hSave)
+        StratInfoSavePic := g.Add("Picture", "x" (pad - 6) " y" (saveY - 6) " w" (innerW + 12) " h44 +BackgroundTrans Hidden", "HBITMAP:*" hSave)
+        StratInfoSaveRect := [pad, saveY, innerW, 32]
+    }
+    y += 20
+}
+
+; The Info window: a dark, borderless window in the macro's style (no Windows message box, so no system sound).
+; Drag the top bar to move it; close it with the X or Escape. Hover a unit square to see the unit's name.
+StratInfo(title := "Unknown strat", author := "", towers := "", mods := "", desc := "", accent := "3A86FF", path := "") {
+    global StratInfoGui
+    StratInfo_Close()
+    global StratInfoW, StratInfoTiles, StratInfoPath, StratInfoEdit, StratInfoLower, StratInfoBaseH
+    W := 460, pad := 22, innerW := W - pad * 2
+    StratInfoW := W
+    StratInfoTiles := []
+    StratInfoPath := path, StratInfoEdit := false
+    g := Gui("-Caption +Border +Owner" MainGui.Hwnd)
+    StratInfoGui := g
+    g.BackColor := "121212"
+    g.MarginX := 0, g.MarginY := 0
+
+    ; top bar (drag to move) with title and close button
+    ; (clicks on the bar and the X are handled by StratInfo_Click)
+    g.Add("Text", "x0 y0 w" W " h38 Background0A0A0A", "")
+    g.SetFont("s10 w600 cFFFFFF", "Segoe UI")
+    g.Add("Text", "x" pad " y0 w300 h38 +0x200 +BackgroundTrans", "Strategy Info")
+    g.SetFont("s11 w400 cB8BEC8", "Segoe UI")
+    g.Add("Text", "x" (W - 42) " y0 w42 h38 +0x200 Center Background0A0A0A", Chr(0x2715))
+
+    ; accent strip under the bar
+    g.Add("Text", "x0 y38 w" W " h2 Background" accent, "")
+
+    y := 58
+    ; title + author
+    g.SetFont("s14 w700 cFFFFFF", "Segoe UI")
+    t := g.Add("Text", "x" pad " y" y " w" innerW " +BackgroundTrans", title)
+    t.GetPos(, , , &th)
+    y += th + 2
+    if (author != "") {
+        g.SetFont("s9 w400 c8A93A3", "Segoe UI")
+        g.Add("Text", "x" pad " y" y " w" innerW " h18 +BackgroundTrans", "by " author)
+        y += 28
+    } else {
+        y += 10
+    }
+
+    StratInfo_Units(g, towers, &y, pad, innerW)
+    StratInfo_Modifiers(g, mods, &y, pad, innerW, path != "")
+    lowerStart := y
+
+    ; description
+    if (desc != "") {
+        g.SetFont("s8 w700 c6F7785", "Segoe UI")
+        g.Add("Text", "x" pad " y" y " w" innerW " h14 +BackgroundTrans", "DESCRIPTION")
+        y += 20
+        g.SetFont("s9 w400 cC5CBD3", "Segoe UI")
+        d := g.Add("Text", "x" pad " y" y " w" innerW " +BackgroundTrans", StrReplace(desc, "\n", "`n"))
+        d.GetPos(, , , &dh)
+        y += dh + 18
+    }
+
+    ; footer hint
+    g.SetFont("s8 w400 c6F7785", "Segoe UI")
+    g.Add("Text", "x" pad " y" y " w" innerW " h16 +BackgroundTrans", "Use the pencil button on the card to edit the rest of this strategy.")
+    y += 16 + pad
+
+    ; everything below the modifiers moves down while the modifier editor is open (see StratInfo_SetEdit)
+    StratInfoLower := []
+    for ctrlHwnd, ctrl in g {
+        ctrl.GetPos(, &cy)
+        if (cy >= lowerStart)
+            StratInfoLower.Push([ctrl, cy])
+    }
+    StratInfoBaseH := y
+
+    g.OnEvent("Escape", StratInfo_Close)
+    g.OnEvent("Close", StratInfo_Close)
+    OnMessage(0x0201, StratInfo_Click)
+    SetTimer(StratInfo_Hover, 30)
+
+    ; centre it over the macro window
+    try {
+        MainGui.GetPos(&mx, &my, &mw, &mh)
+        g.Show("Hide w" W " h" y)
+        g.GetPos(, , &gw, &gh)
+        g.Show("x" (mx + (mw - gw) // 2) " y" (my + (mh - gh) // 2) " w" W " h" y)
+    } catch {
+        g.Show("w" W " h" y)
+    }
 }
 
 ; reads tds message (e.g., "You cannot place here")
@@ -9508,70 +9935,8 @@ GetDiscordMention(rawId) {
     return "<@" cleanId ">"
 }
 
-; ===================== Strategy Modifiers editor =====================
-; Edits the "modifiers=" line of the strategy in the "Strategy:" box (Strategy 1).
-ShowModifiersGui(*) {
-    global MainGui, Strategy1Ctrl, ModGui, ModStratPath, ModifierCheckboxes, ModifiersTextCtrl
-
-    stratPath := Trim(Strategy1Ctrl.Value)
-    if (stratPath = "" || !FileExist(stratPath)) {
-        MsgBox("Choose a strategy in the 'Strategy:' field first.`nModifiers are saved straight into that strategy file.", "Strategy Modifiers", 0x1040)
-        return
-    }
-    ModStratPath := stratPath
-
-    if (ModGui) {
-        try ModGui.Destroy()
-    }
-    ModGui := Gui("+Owner" MainGui.Hwnd, "Strategy Modifiers")
-    ModGui.BackColor := "121212"
-
-    ModGui.SetFont("s10 w400 c3A86FF", "Segoe UI")
-    ModGui.Add("Text", "x20 y14 w300 h22", "Strategy Modifiers")
-    ModGui.SetFont("s9 w400 cAAAAAA", "Segoe UI")
-    SplitPath(stratPath, &stratName)
-    ModGui.Add("Text", "x20 y38 w620 h20", "Editing: " stratName)
-    ModGui.SetFont("s9 w400 cFFFFFF", "Segoe UI")
-
-    names := [["Glass", "Gla"], ["Hidden", "Hid"], ["Exploding", "Exp"], ["Limitation", "Lim"], ["Committed", "Com"], ["Flying", "Fly"],
-              ["Fog", "Fog"], ["Quarantine", "Qua"], ["Inflation", "Inf"], ["Broke", "Bro"], ["Speedy", "Spe"], ["Healthy", "Hea"]]
-    ModifierCheckboxes := []
-    for idx, pair in names {
-        col := Mod(idx - 1, 6)
-        row := (idx - 1) // 6
-        cb := ModGui.Add("Checkbox", "x" (20 + col * 105) " y" (68 + row * 26) " w100 h20", pair[1])
-        cb.OnEvent("Click", OnModifierCheckboxClick)
-        ModifierCheckboxes.Push({ ctrl: cb, name: pair[1], code: pair[2] })
-    }
-
-    ModGui.SetFont("s9 w400 cAAAAAA", "Segoe UI")
-    ModGui.Add("Text", "x20 y129 w50 h20 BackgroundTrans", "Active:")
-    ModGui.SetFont("s9 w400 c000000", "Segoe UI")
-    ModifiersTextCtrl := ModGui.Add("Edit", "x75 y126 w565 h22")
-    ModifiersTextCtrl.OnEvent("Change", OnModifiersTextChange)
-
-    ModGui.SetFont("s10 w400 cFFFFFF", "Segoe UI")
-    saveBtn := ModGui.Add("Text", "x20 y166 w315 h30 +Border 0x200 Center", "Save to strategy")
-    saveBtn.OnEvent("Click", OnSaveModifiersBtnClick)
-    closeBtn := ModGui.Add("Text", "x345 y166 w295 h30 +Border 0x200 Center", "Close")
-    closeBtn.OnEvent("Click", CloseModifiersGui)
-    ModGui.OnEvent("Close", CloseModifiersGui)
-    ModGui.OnEvent("Escape", CloseModifiersGui)
-
-    UpdateModifierUI(IniRead(stratPath, "Settings", "modifiers", ""))
-    ModGui.Show("w660 h212")
-}
-
-CloseModifiersGui(*) {
-    global ModGui, ModifiersTextCtrl
-    try SetTimer(DebouncedSaveModifiers, 0)
-    try DebouncedSaveModifiers()
-    ModifiersTextCtrl := 0
-    if (ModGui) {
-        try ModGui.Destroy()
-    }
-    ModGui := 0
-}
+; ===================== Modifier helpers (used by the Strategy Info window) =====================
+; The modifier editor lives in the Strategy Info window (Edit button next to MODIFIERS).
 
 NormalizeModifierToken(token) {
     tok := Trim(token)
@@ -9615,181 +9980,15 @@ NormalizeModifierToken(token) {
     return tok
 }
 
-ModifierCodeToName(code) {
-    global ModifierCheckboxes
-    codeLower := StrLower(Trim(code))
-    for item in ModifierCheckboxes {
-        if (StrLower(item.code) = codeLower || StrLower(item.name) = codeLower)
-            return item.name
-    }
-    return code
-}
-
-; Fills the checkboxes + text box from a modifiers string. Only writes to the strategy file when autoSave is true.
-UpdateModifierUI(modString, autoSave := false) {
-    global ModifierCheckboxes, ModifiersTextCtrl, ModLastCodes
-
-    activeMap := Map()
-    normalizedCodes := []
-    fullNamesList := []
-
-    Loop Parse, modString, "," {
-        c := NormalizeModifierToken(A_LoopField)
-        if (c != "" && !activeMap.Has(c)) {
-            activeMap[c] := true
-            normalizedCodes.Push(c)
-            fullNamesList.Push(ModifierCodeToName(c))
-        }
-    }
-
-    for item in ModifierCheckboxes {
-        try item.ctrl.Value := activeMap.Has(item.code) ? 1 : 0
-    }
-
-    cleanCodesStr := ""
-    for idx, code in normalizedCodes
-        cleanCodesStr .= (idx = 1 ? "" : ", ") . code
-
-    fullNamesStr := ""
-    for idx, fn in fullNamesList
-        fullNamesStr .= (idx = 1 ? "" : ", ") . fn
-
-    ModLastCodes := cleanCodesStr
-    if IsObject(ModifiersTextCtrl) {
-        try ModifiersTextCtrl.Value := fullNamesStr
-    }
-
-    if (autoSave)
-        SaveModifiersToStrategyFile(cleanCodesStr)
-}
-
-OnModifierCheckboxClick(*) {
-    global ModifierCheckboxes, ModifiersTextCtrl
-
-    activeCodes := []
-    activeFullNames := []
-    for item in ModifierCheckboxes {
-        if (item.ctrl.Value = 1) {
-            activeCodes.Push(item.code)
-            activeFullNames.Push(item.name)
-        }
-    }
-
-    ; keep any custom (non-checkbox) modifiers that were typed into the text box
-    currentRaw := IsObject(ModifiersTextCtrl) ? ModifiersTextCtrl.Value : ""
-    Loop Parse, currentRaw, "," {
-        tok := Trim(A_LoopField)
-        if (tok = "")
-            continue
-        c := NormalizeModifierToken(tok)
-        isStandard := false
-        for item in ModifierCheckboxes {
-            if (c = item.code) {
-                isStandard := true
-                break
-            }
-        }
-        if (!isStandard) {
-            alreadyIn := false
-            for ac in activeCodes {
-                if (ac = c) {
-                    alreadyIn := true
-                    break
-                }
-            }
-            if (!alreadyIn) {
-                activeCodes.Push(c)
-                activeFullNames.Push(tok)
-            }
-        }
-    }
-
-    newCodesStr := ""
-    for idx, c in activeCodes
-        newCodesStr .= (idx = 1 ? "" : ", ") . c
-
-    newFullNamesStr := ""
-    for idx, fn in activeFullNames
-        newFullNamesStr .= (idx = 1 ? "" : ", ") . fn
-
-    if IsObject(ModifiersTextCtrl)
-        ModifiersTextCtrl.Value := newFullNamesStr
-    SaveModifiersToStrategyFile(newCodesStr)
-}
-
-OnModifiersTextChange(*) {
-    global ModifierCheckboxes, ModifiersTextCtrl
-
-    if !IsObject(ModifiersTextCtrl)
-        return
-
-    activeMap := Map()
-    Loop Parse, ModifiersTextCtrl.Value, "," {
-        c := NormalizeModifierToken(A_LoopField)
-        if (c != "")
-            activeMap[c] := true
-    }
-    for item in ModifierCheckboxes {
-        try item.ctrl.Value := activeMap.Has(item.code) ? 1 : 0
-    }
-
-    SetTimer(DebouncedSaveModifiers, -600)
-}
-
-DebouncedSaveModifiers() {
-    global ModifiersTextCtrl, ModLastCodes
-
-    if !IsObject(ModifiersTextCtrl)
-        return
-
-    activeMap := Map()
-    normalizedCodes := []
-    fullNamesList := []
-    Loop Parse, ModifiersTextCtrl.Value, "," {
-        c := NormalizeModifierToken(A_LoopField)
-        if (c != "" && !activeMap.Has(c)) {
-            activeMap[c] := true
-            normalizedCodes.Push(c)
-            fullNamesList.Push(ModifierCodeToName(c))
-        }
-    }
-    cleanCodesStr := ""
-    for idx, c in normalizedCodes
-        cleanCodesStr .= (idx = 1 ? "" : ", ") . c
-    fullNamesStr := ""
-    for idx, fn in fullNamesList
-        fullNamesStr .= (idx = 1 ? "" : ", ") . fn
-
-    ; nothing actually changed (e.g. the box was only filled in when the window opened) -> don't touch the file
-    if (cleanCodesStr = ModLastCodes)
-        return
-
-    SaveModifiersToStrategyFile(cleanCodesStr)
-
-    if (ModifiersTextCtrl.Value != fullNamesStr && !WinActive("ahk_id " ModifiersTextCtrl.Hwnd)) {
-        try ModifiersTextCtrl.Value := fullNamesStr
-    }
-}
-
-OnSaveModifiersBtnClick(*) {
-    global ModifiersTextCtrl
-    if !IsObject(ModifiersTextCtrl)
-        return
-    UpdateModifierUI(ModifiersTextCtrl.Value, true)
-    fullNames := ModifiersTextCtrl.Value
-    MsgBox("Strategy modifiers saved:`n`nActive: " (fullNames != "" ? fullNames : "(None)"), "Modifiers Saved", 0x1040)
-}
-
-SaveModifiersToStrategyFile(modStr) {
-    global ModStratPath, ModLastCodes
-    if (ModStratPath = "" || !FileExist(ModStratPath))
-        return
+; Writes the modifiers= line of a strategy file. Returns true when it was saved.
+SaveModifiersToStrategyFile(path, modStr) {
+    if (path = "" || !FileExist(path))
+        return false
     try {
-        ; one-time safety copy of the original strategy before the first edit
-        if !FileExist(ModStratPath ".bak")
-            FileCopy(ModStratPath, ModStratPath ".bak")
-        IniWrite(modStr, ModStratPath, "Settings", "modifiers")
-        ModLastCodes := modStr
-        LogToConsole("Saved modifiers to " ModStratPath ": " modStr)
+        IniWrite(modStr, path, "Settings", "modifiers")
+        LogToConsole("Saved modifiers to " path ": " modStr)
+        return true
+    } catch {
+        return false
     }
 }
