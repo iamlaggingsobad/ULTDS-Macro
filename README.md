@@ -1,4 +1,4 @@
-# Ultimate Macro (TDS) - Personal Fork
+# Unlimited Macro (TDS)
 
 An automation macro for Roblox **Tower Defense Simulator**: record strategies, replay them, and loop matches hands-free.
 
@@ -23,10 +23,12 @@ An automation macro for Roblox **Tower Defense Simulator**: record strategies, r
 
 Changes compared with the original Ultimate Macro **1.3.3a**.
 
+* **Renamed to Unlimited Macro.** The data folder is now `%AppData%\Unlimited_Macro`. On first launch, anything in the old `%AppData%\Ultimate_Macro` folder (settings, recordings, logs) is copied across automatically; the old folder is left as it is.
+
 **Strategy library**
-* Strategies live in the `Strategies` folder next to `Main.ahk`. In the Main tab use **Add** to import a `.strat`, **Open folder** to browse it, **Refresh** to reload, and **Remove** on a card to delete one. Strategies you record are listed too (saved in `%AppData%\Ultimate_Macro\Recordings`).
+* Strategies live in the `Strategies` folder next to `Main.ahk`. In the Main tab use **Add** to import a `.strat`, **Open folder** to browse it, **Refresh** to reload, and **Remove** on a card to delete one. Strategies you record are listed too (saved in `%AppData%\Unlimited_Macro\Recordings`).
 * The bundled strategies and the community download feature are gone: the library only shows your own strats.
-* Each card shows three full-size icons: difficulty, coins and gems. Set `coins=` and/or `gems=` in a strat's `[Info]` section (`small`, `medium`, `large` or `largest`). A currency that is empty or missing shows a greyed-out icon.
+* Each card shows four icon plates with their value underneath: game mode, coins (gold), gems (magenta) and unit EXP (cyan). The values come from the strat's `[Info]` section (see below). Anything empty or missing is shown grey with a `-`, an explicit `0` is shown grey as `0`, and the macro still loads the strat normally.
 * Library icons moved to `Resources\Images`.
 
 **Night events (Night 3 and Night 4)**
@@ -52,10 +54,10 @@ Changes compared with the original Ultimate Macro **1.3.3a**.
 title=My Strat
 author=Your name
 desc=Short description
-income=~4000 coins/h, ~120 gems/h
-coins=small
-gems=small
-time=20 minutes
+coins=1425, large
+gems=0
+exp=120
+time=~14m 20s
 
 [Settings]
 map=Dead ahead
@@ -63,10 +65,16 @@ difficulty=Molten
 requiredTowers=Demoman, DJ, Hacker, Shotgunner, Juggernaut
 ```
 
+Every `[Info]` key is optional; leave a value empty (or leave the key out) when you do not know it yet.
+
+* `coins=`, `gems=`: an amount, a tier (`small`, `medium`, `large`, `largest`) or both, in any order: `1425, large`, `large, 1425`, `1425`, `large`, `0`. The amount is printed under the icon, and the tier picks the icon. With only an amount, the icon tier is chosen from it (see `RewardTiers` in `Main.ahk`).
+* `exp=`: unit EXP, a number only.
+* `time=`: free text, shown on the card.
+
 Library icons are loaded from `Resources\Images`:
 
 * Difficulty icon: `<difficulty>.png` (for example `Molten.png`, `Night4.png`).
-* Reward icons: `coins_<size>.png` and `gems_<size>.png`.
+* Reward icons: `coins_<size>.png` and `gems_<size>.png`. Unit EXP always uses `exp.png`.
 * Greyed-out icons: `coins_none.png` and `gems_none.png`.
 
 ## Requirements
@@ -94,10 +102,21 @@ Library icons are loaded from `Resources\Images`:
 
 ## Notes
 
-* Your webhook URL and bot token are saved in plain text under `%AppData%\Ultimate_Macro`. Don't share that folder.
+* Your webhook URL and bot token are saved in plain text under `%AppData%\Unlimited_Macro`. Don't share that folder.
 * In Discord bot mode, anyone who can post in the configured channel can use `!start`, `!stop`, `!status` and `!screenshot`. Keep that channel private.
 * Automating input in Roblox may be against the rules of the game. Use it at your own risk.
 
 ## License
 
 GPL-3.0. See `LICENSE`.
+
+
+## Merged from the IlMlN edition
+
+Ported on top of this fork without removing anything that was already here:
+
+- **Reward detection** - end-of-match Coins / Gems / EXP are now read with a multi-step pipeline: Roblox memory read (`lib/RobloxMemory.ahk`, read-only, uses `Resources/client_layout.txt`), adaptive OCR, and 3 retries, cross-checked against each other. A comprehensive log is written to `%AppData%\Unlimited_Macro\Logs\reward_debug.log`. Screenshots still capture the primary monitor only.
+- **Settings auto-save** - checkboxes, hotkeys and inputs on the Settings and Discord tabs save silently in the background. The "Save" buttons still work and still show a confirmation. Legacy Mode is still applied only with "Save all settings" because it reloads the macro. The Upgrade Delay box is now actually read back when saving.
+- **Timescale on the Main tab** - the dropdown moved next to "Auto Equip Towers".
+- **Strategy Modifiers editor** - "Strategy Modifiers" button on the Main tab (next to the library buttons). Tick Glass / Hidden / Exploding / ... and it writes the `modifiers=` line of the strategy in the "Strategy:" box. A one-time `.bak` copy of the strategy is made before the first edit.
+- **Discord** - optional @mention on Win, on Loss and when Timescale tickets run out (User ID + checkboxes on the Discord tab). When tickets run out the macro also stops trying to use timescale for the rest of the run.

@@ -1,0 +1,100 @@
+[Info]
+title=G Soldier
+author=Artemm20123 & Its_Pastik
+desc=Modifiers recommended, timescale optional.
+coins=large
+gems=?
+exp=?
+time=~7m
+
+[Settings]
+map=Dead Ahead
+difficulty=Easy
+requiredTowers=G Soldier
+modifiers=Fog, Lim, Exp, Fly, Hid, Gla, Com
+chainInterval=10
+caravanInterval=20
+autoChain=OFF
+autoCaravan=OFF
+autoDropTheBeat=OFF
+autoSkip=OFF
+moveEnabled=1
+moveDirection=W
+moveDuration=750
+
+[DO NOT EDIT]
+width=1920
+height=1009
+
+[Steps]
+Sleep(1203)
+Send("s", hold:=750)
+Sleep(1203)
+Send("d", hold:=130)
+Sleep(2000)
+SpawnTower(884, 255, 1, So1)
+SpawnTower(977, 255, 1, So2)
+SpawnTower(882, 302, 1, So3)
+SpawnTower(977, 301, 1, So4)
+UpgradeTower(So1)
+UpgradeTower(So1)
+UpgradeTower(So2)
+UpgradeTower(So2)
+UpgradeTower(So3)
+UpgradeTower(So3)
+UpgradeTower(So4)
+UpgradeTower(So4)
+SpawnTower(1020, 276, 1, So5)
+UpgradeTower(So5)
+UpgradeTower(So5)
+SpawnTower(836, 275, 1, So6)
+UpgradeTower(So6)
+UpgradeTower(So6)
+SpawnTower(1025, 322, 1, So7)
+UpgradeTower(So7)
+UpgradeTower(So7)
+SpawnTower(835, 318, 1, So8)
+UpgradeTower(So8)
+UpgradeTower(So8)
+SpawnTower(980, 347, 1, So9)
+UpgradeTower(So9)
+UpgradeTower(So9)
+SpawnTower(879, 346, 1, So10)
+UpgradeTower(So10)
+UpgradeTower(So10)
+SpawnTower(1067, 298, 1, So11)
+UpgradeTower(So11)
+UpgradeTower(So11)
+SpawnTower(791, 295, 1, So12)
+UpgradeTower(So12)
+UpgradeTower(So12)
+SpawnTower(1027, 367, 1, So13)
+UpgradeTower(So13)
+UpgradeTower(So13)
+SpawnTower(834, 365, 1, So14)
+UpgradeTower(So14)
+UpgradeTower(So14)
+UpgradeTower(So1)
+UpgradeTower(So2)
+SpawnTower(1073, 345, 1, So15)
+UpgradeTower(So15)
+UpgradeTower(So15)
+SpawnTower(791, 341, 1, So16)
+UpgradeTower(So16)
+UpgradeTower(So16)
+UpgradeTower(So3)
+UpgradeTower(So4)
+UpgradeTower(So9)
+UpgradeTower(So10)
+UpgradeTower(So11)
+UpgradeTower(So15)
+UpgradeTower(So12)
+UpgradeTower(So16)
+UpgradeTower(So6)
+UpgradeTower(So8)
+UpgradeTower(So14)
+UpgradeTower(So5)
+UpgradeTower(So7)
+UpgradeTower(So13)
+UpgradeTower(So13)
+UpgradeTower(So14)

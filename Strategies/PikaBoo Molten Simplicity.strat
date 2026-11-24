@@ -1,0 +1,133 @@
+[Info]
+title=Pikaboo Molten
+author=Pikaboo
+desc=
+coins=medium
+gems=0
+exp=?
+time=?
+
+[Settings]
+map=Simplicity
+difficulty=Molten
+requiredTowers=Juggernaut, Shotgunner, Brawler, DJ, Hacker
+modifiers=
+autoChain=OFF
+autoCaravan=OFF
+autoDropTheBeat=ON
+autoSkip=OFF
+abilitySpam=OFF
+moveEnabled=0
+moveDirection=W
+moveDuration=1000
+
+[DO NOT EDIT]
+width=1920
+height=1009
+
+[Steps]
+SpawnTower(691, 175, 3, Brawler1)
+SpawnTower(694, 144, 3, Brawler2)
+SpawnTower(625, 262, 2, Shotgunner1)
+UpgradeTower(Shotgunner1)
+UpgradeTower(Shotgunner1)
+SpawnTower(625, 294, 2, Shotgunner2)
+UpgradeTower(Shotgunner2)
+UpgradeTower(Shotgunner2)
+SpawnTower(723, 181, 2, Shotgunner3)
+UpgradeTower(Shotgunner3)
+UpgradeTower(Shotgunner3)
+SpawnTower(718, 211, 2, Shotgunner4)
+UpgradeTower(Shotgunner4)
+UpgradeTower(Shotgunner4)
+SpawnTower(804, 219, 5, Hacker1)
+UpgradeTower(Hacker1, false, 1, 1, 4)
+UpgradeTower(Hacker1, false, 1, 1, 4)
+SpawnTower(715, 244, 3, Brawler3)
+UpgradeTower(Brawler3)
+UpgradeTower(Brawler3)
+UpgradeTower(Brawler3)
+SpawnTower(714, 275, 3, Brawler4)
+UpgradeTower(Brawler4)
+UpgradeTower(Brawler4)
+UpgradeTower(Brawler4)
+SpawnTower(714, 311, 3, Brawler5)
+UpgradeTower(Brawler1)
+UpgradeTower(Brawler1)
+UpgradeTower(Brawler1)
+UpgradeTower(Brawler5)
+UpgradeTower(Brawler5)
+UpgradeTower(Brawler5)
+UpgradeTower(Brawler2)
+UpgradeTower(Brawler2)
+UpgradeTower(Brawler2)
+UpgradeTower(Brawler3)
+UpgradeTower(Brawler1)
+UpgradeTower(Brawler4)
+UpgradeTower(Brawler5)
+UpgradeTower(Brawler2)
+UpgradeTower(Brawler3)
+UpgradeTower(Brawler1)
+UpgradeTower(Brawler4)
+UpgradeTower(Brawler5)
+UpgradeTower(Brawler2)
+SpawnTower(726, 149, 2, Shotgunner5)
+UpgradeTower(Shotgunner5)
+UpgradeTower(Shotgunner5)
+SpawnTower(751, 214, 2, Shotgunner6)
+UpgradeTower(Shotgunner6)
+UpgradeTower(Shotgunner6)
+SpawnTower(754, 183, 2, Shotgunner7)
+UpgradeTower(Shotgunner7)
+UpgradeTower(Shotgunner7)
+SpawnTower(756, 155, 2, Shotgunner8)
+UpgradeTower(Shotgunner8)
+UpgradeTower(Shotgunner8)
+SpawnTower(787, 185, 2, Shotgunner9)
+UpgradeTower(Shotgunner9)
+UpgradeTower(Shotgunner9)
+SpawnTower(867, 217, 4, DJ)
+UpgradeTower(DJ)
+UpgradeTower(DJ)
+SetDJTrack("Red")
+UpgradeTower(DJ)
+UpgradeTower(DJ)
+UpgradeTower(Shotgunner6)
+UpgradeTower(Shotgunner4)
+UpgradeTower(DJ)
+UpgradeTower(Shotgunner9)
+UpgradeTower(Shotgunner7)
+UpgradeTower(Shotgunner3)
+UpgradeTower(Shotgunner5)
+UpgradeTower(Shotgunner8)
+UpgradeTower(Shotgunner2)
+UpgradeTower(Shotgunner1)
+UpgradeTower(Shotgunner6)
+UpgradeTower(Shotgunner9)
+UpgradeTower(Shotgunner7)
+UpgradeTower(Shotgunner8)
+UpgradeTower(Shotgunner5)
+UpgradeTower(Shotgunner3)
+UpgradeTower(Shotgunner4)
+UpgradeTower(Shotgunner2)
+UpgradeTower(Shotgunner1)
+UpgradeTower(Hacker1, false, 1, 1, 4)
+UpgradeTower(Hacker1, false, 1, 1, 4)
+UpgradeTower(Hacker1, false, 1, 1, 4)
+SpawnTower(937, 66, 1, Juggernaut1)
+UpgradeTower(Juggernaut1, false, 1, 1, 3)
+UpgradeTower(Juggernaut1, false, 1, 1, 3)
+UpgradeTower(Juggernaut1, false, 1, 1, 3)
+UpgradeTower(Juggernaut1, false, 1, 1, 3)
+UpgradeTower(Juggernaut1, false, 1, 1, 3)
+UpgradeTower(Juggernaut1, false, 1, 1, 3)
+UpgradeTower(Juggernaut1, false, 1, 1, 3)
+CloneTower(Juggernaut1, 962, 401)
+SpawnTower(817, 305, 5, Hacker2)
+UpgradeTower(Hacker2, false, 1, 1, 4)
+UpgradeTower(Hacker2, false, 1, 1, 4)
+UpgradeTower(Hacker2, false, 1, 1, 4)
+UpgradeTower(Hacker2, false, 1, 1, 4)
+UpgradeTower(Hacker2, false, 1, 1, 4)
+CloneTower(Juggernaut1, 962, 401)
+CloneTower(Juggernaut1, 962, 401)

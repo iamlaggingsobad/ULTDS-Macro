@@ -1,0 +1,157 @@
+[Info]
+title=Cheeze Molten V2
+author=Cheeze
+desc=
+coins=1425, large
+gems=0
+exp=120
+time=~14m 20s
+
+[Settings]
+map=Dead Ahead
+difficulty=Molten
+requiredTowers=Operator, Hacker, Commander, DJ, Juggernaut
+modifiers=
+autoChain=OFF
+autoCaravan=OFF
+autoDropTheBeat=ON
+autoSkip=ON
+abilitySpam=OFF
+moveEnabled=0
+moveDirection=W
+moveDuration=1000
+
+[DO NOT EDIT]
+width=1920
+height=1009
+
+
+[Steps]
+SpawnTower(1003, 429, 1, Operator1)
+UpgradeTower(Operator1)
+SpawnTower(1005, 388, 1, Operator2)
+UpgradeTower(Operator2)
+SpawnTower(1010, 349, 1, Operator3)
+UpgradeTower(Operator3)
+SpawnTower(1041, 412, 1, Operator4)
+UpgradeTower(Operator4)
+SpawnTower(1046, 369, 1, Operator5)
+UpgradeTower(Operator5)
+SpawnTower(1052, 331, 1, Operator6)
+UpgradeTower(Operator6)
+SpawnTower(1018, 306, 1, Operator7)
+UpgradeTower(Operator7)
+SpawnTower(1044, 455, 1, Operator8)
+UpgradeTower(Operator8)
+SpawnTower(1078, 433, 1, Operator9)
+UpgradeTower(Operator9)
+SpawnTower(1083, 393, 1, Operator10)
+UpgradeTower(Operator10)
+SpawnTower(1091, 351, 1, Operator11)
+UpgradeTower(Operator11)
+UpgradeTower(Operator1)
+UpgradeTower(Operator2)
+UpgradeTower(Operator3)
+UpgradeTower(Operator4)
+UpgradeTower(Operator5)
+UpgradeTower(Operator6)
+UpgradeTower(Operator7)
+UpgradeTower(Operator8)
+UpgradeTower(Operator9)
+UpgradeTower(Operator10)
+UpgradeTower(Operator11)
+SpawnTower(1005, 503, 4, DJ)
+SpawnTower(1077, 487, 3, Commander1)
+UpgradeTower(Commander1)
+UpgradeTower(Commander1)
+SpawnTower(912, 409, 2, Hacker1)
+UpgradeTower(Hacker1)
+UpgradeTower(Hacker1)
+ChangeTargets(Hacker1, Weakest)
+UpgradeTower(Operator1)
+UpgradeTower(Operator2)
+UpgradeTower(Operator8)
+UpgradeTower(Operator4)
+AutoChain=ON
+UpgradeTower(Operator5)
+UpgradeTower(Operator6)
+UpgradeTower(Operator7)
+UpgradeTower(Operator3)
+UpgradeTower(Operator9)
+UpgradeTower(Operator10)
+UpgradeTower(Operator11)
+UpgradeTower(Operator1)
+UpgradeTower(Operator2)
+UpgradeTower(Operator3)
+UpgradeTower(Operator4)
+UpgradeTower(Operator5)
+UpgradeTower(Operator6)
+UpgradeTower(Operator7)
+UpgradeTower(Operator8)
+UpgradeTower(Operator9)
+UpgradeTower(Operator10)
+UpgradeTower(Operator11)
+UpgradeTower(Operator1)
+UpgradeTower(Operator2)
+UpgradeTower(Operator3)
+UpgradeTower(Operator4)
+UpgradeTower(Operator5)
+UpgradeTower(Operator6)
+UpgradeTower(Operator7)
+UpgradeTower(Operator8)
+UpgradeTower(Operator8)
+UpgradeTower(Operator9)
+UpgradeTower(Operator10)
+UpgradeTower(Operator11)
+SpawnTower(1056, 688, 1, Operator12)
+UpgradeTower(Operator12)
+UpgradeTower(Operator12)
+UpgradeTower(Operator12)
+UpgradeTower(Operator12)
+UpgradeTower(Operator12)
+SpawnTower(1001, 915, 1, Operator13)
+UpgradeTower(Operator13)
+UpgradeTower(Operator13)
+UpgradeTower(Operator13)
+UpgradeTower(Operator13)
+UpgradeTower(Operator13)
+UpgradeTower(DJ)
+UpgradeTower(DJ)
+UpgradeTower(DJ)
+SetDJTrack("Red")
+UpgradeTower(DJ)
+UpgradeTower(DJ)
+UpgradeTower(Operator1)
+UpgradeTower(Operator2)
+UpgradeTower(Operator3)
+UpgradeTower(Operator4)
+UpgradeTower(Operator5)
+UpgradeTower(Operator6)
+UpgradeTower(Operator7)
+UpgradeTower(Operator8)
+UpgradeTower(Operator9)
+UpgradeTower(Operator10)
+UpgradeTower(Operator11)
+UpgradeTower(Commander1)
+UpgradeTower(Commander1)
+SpawnTower(1120, 458, 3, Commander2)
+UpgradeTower(Commander2)
+UpgradeTower(Commander2)
+SpawnTower(1128, 409, 3, Commander3)
+UpgradeTower(Commander3)
+UpgradeTower(Commander3)
+SpawnTower(1009, 569, 2, Hacker2)
+UpgradeTower(Hacker2)
+UpgradeTower(Hacker2)
+UpgradeTower(Hacker1, false, 3, 1, 4)
+UpgradeTower(Hacker2, false, 3, 1, 4)
+SpawnTower(1133, 523, 5, Juggernaut1)
+UpgradeTower(Juggernaut1, false, 7, 1, 3)
+CloneTower(Juggernaut1, 1163, 626)
+Sleep(10000)
+CloneTower(Juggernaut1, 1252, 956)
+CloneTower(Juggernaut1, 1252, 956)
+CloneTower(Juggernaut1, 1252, 956)
+CloneTower(Juggernaut1, 1252, 956)
+CloneTower(Juggernaut1, 1252, 956)
+CloneTower(Juggernaut1, 1252, 956)

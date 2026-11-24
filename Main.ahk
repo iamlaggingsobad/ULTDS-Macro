@@ -16,8 +16,10 @@ if (RegExMatch(A_ScriptDir, "i)\.(zip|rar)")) {
     ExitApp()
 }
 
-if WinExist("Ultimate Macro") {
-    WinClose("Ultimate Macro")
+; close an already-running copy (the old "Ultimate Macro" window title is checked too, so an older build is closed as well)
+for oldTitle in ["Unlimited Macro", "Ultimate Macro"] {
+    if WinExist(oldTitle)
+        WinClose(oldTitle)
 }
 
 if (A_PtrSize == 4) {
@@ -32,6 +34,7 @@ if (A_PtrSize == 4) {
 #Include lib\ImageSearch\ImageSearch.ahk
 #Include lib\JSON.ahk
 #Include lib\Discord.ahk
+#Include lib\MapDatabase.ahk
 
 command_buffer := []
 
@@ -43,11 +46,17 @@ pToken := Gdip_Startup()
 OnExit(CleanupGdip)
 OnExit(HandleExit)
 
-global AppDataOpt := A_AppData "\Ultimate_Macro\Options"
+; The app data folder was renamed from Ultimate_Macro to Unlimited_Macro. On first launch, copy the old settings,
+; recordings and logs across so nothing is lost (the old folder is left untouched).
+if (DirExist(A_AppData "\Ultimate_Macro") && !DirExist(A_AppData "\Unlimited_Macro")) {
+    try DirCopy(A_AppData "\Ultimate_Macro", A_AppData "\Unlimited_Macro")
+}
+
+global AppDataOpt := A_AppData "\Unlimited_Macro\Options"
 global SettingsFile := AppDataOpt "\Settings.tds"
 global BotSettings := AppDataOpt "\Discord-Bot-Settings.ini"
-global RecordingsDir := A_AppData "\Ultimate_Macro\Recordings"
-global StateFile := A_AppData "\Ultimate_Macro\state.ini"
+global RecordingsDir := A_AppData "\Unlimited_Macro\Recordings"
+global StateFile := A_AppData "\Unlimited_Macro\state.ini"
 
 global MyStratsDir := A_WorkingDir "\Strategies"   ; your own strategies, next to Main.ahk (Add / Remove in the Main tab)
 
@@ -76,6 +85,14 @@ global LegacyMode := IniRead(SettingsFile, "Options", "LegacyMode", 0)
 global WebhookLink := IniRead(SettingsFile, "Webhook", "Link", "")
 global WebhookLink2 := IniRead(SettingsFile, "Webhook", "Link2", "")
 global WebhookUserID := IniRead(SettingsFile, "Webhook", "WebhookUserID", "")
+global PingOnWin := Integer(IniRead(SettingsFile, "Webhook", "PingOnWin", 0))
+global PingOnLoss := Integer(IniRead(SettingsFile, "Webhook", "PingOnLoss", 0))
+global PingOnTimescale := Integer(IniRead(SettingsFile, "Webhook", "PingOnTimescale", 0))
+global ModGui := 0
+global ModStratPath := ""
+global ModLastCodes := ""
+global ModifierCheckboxes := []
+global ModifiersTextCtrl := 0
 global WebhookEnabled := IniRead(SettingsFile, "Webhook", "Enabled", 0)
 global PotatoMode := IniRead(SettingsFile, "Options", "PotatoMode", 0)
 global SendCurrenciesEnabled := IniRead(SettingsFile, "Webhook", "SendCurrencies", "1")
@@ -206,6 +223,7 @@ global modifiers := ""
 global LastDisconnectCheck := 0
 global LastOpenedTowerID := ""
 global IsRestarting := false
+global NightMatchLost := false
 global SafeExitFlag := false
 global RestartLock := false
 
@@ -608,7 +626,7 @@ if FileExist(IconPath) {
     SystemHwnds[sysIcon.Hwnd] := true
 }
 
-global GuiTitleCtrl := MainGui.Add("Text", "x50 y12 w150 h25 BackgroundTrans", "Ultimate Macro | TDS")
+global GuiTitleCtrl := MainGui.Add("Text", "x50 y12 w200 h25 BackgroundTrans", "Unlimited Macro | TDS")
 GuiTitleCtrl.OnEvent("Click", MoveWindow)
 SystemHwnds[GuiTitleCtrl.Hwnd] := true
 
@@ -728,19 +746,22 @@ global AutoEquipCtrl := MainGui.Add("Checkbox", "x357 y190 vAutoEquip 0x200 Chec
 AutoEquipCtrl.OnEvent("Click", EnableAutoEquip)
 
 MainGui.SetFont("s10 w400 c3A86FF", "Segoe UI")
-global Tab1_Section2 := MainGui.Add("Text", "x30 y225 h22", "Strategy Library")
-global Tab1_Line2 := MainGui.Add("Progress", "x30 y248 w640 h1 Background333333", 0)
+global Tab1_Section2 := MainGui.Add("Text", "x30 y223 w200 h22 0x200", "Strategy Library")
+global Tab1_Line2 := MainGui.Add("Progress", "x30 y250 w640 h1 Background333333", 0)
 
 MainGui.SetFont("s9 w400 cFFFFFF", "Segoe UI")
-global Tab1_AddBtn := MainGui.Add("Text", "x440 y223 w70 h21 +Border 0x200 Center", "Add")
+global Tab1_AddBtn := MainGui.Add("Text", "x440 y223 w70 h22 +Border 0x200 Center", "Add")
 Tab1_AddBtn.OnEvent("Click", StratLib_Add)
-global Tab1_FolderBtn := MainGui.Add("Text", "x515 y223 w75 h21 +Border 0x200 Center", "Open folder")
+global Tab1_FolderBtn := MainGui.Add("Text", "x515 y223 w75 h22 +Border 0x200 Center", "Open folder")
 Tab1_FolderBtn.OnEvent("Click", StratLib_OpenFolder)
-global Tab1_RefreshBtn := MainGui.Add("Text", "x595 y223 w75 h21 +Border 0x200 Center", "Refresh")
+global Tab1_RefreshBtn := MainGui.Add("Text", "x595 y223 w75 h22 +Border 0x200 Center", "Refresh")
 Tab1_RefreshBtn.OnEvent("Click", StratLib_Refresh)
 HoverEffect.Push(Tab1_AddBtn)
 HoverEffect.Push(Tab1_FolderBtn)
 HoverEffect.Push(Tab1_RefreshBtn)
+global Tab1_ModBtn := MainGui.Add("Text", "x305 y223 w130 h22 +Border 0x200 Center", "Strategy Modifiers")
+Tab1_ModBtn.OnEvent("Click", ShowModifiersGui)
+HoverEffect.Push(Tab1_ModBtn)
 
 
 LoadedStrats := []
@@ -847,9 +868,9 @@ if (lastUpdate != "0") {
 ; }
 
 global FrameX := 30
-global FrameY := 260
+global FrameY := 262
 global FrameW := 640
-global FrameH := 220
+global FrameH := 224
 global ContentH := 400
 global CurrentScrollPos := 0
 global SliderH := 30
@@ -864,6 +885,7 @@ for stratSrc in [[MyStratsDir, true], [RecordingsDir, true]] {
 Loop Files, stratSrc[1] "\*.strat" {
     localPath := A_LoopFileFullPath
     
+    ; Every key is optional: a missing [Info] section, a missing key or an empty value just gives "".
     sMap := IniRead(localPath, "Settings", "map", "")
     sDifficulty := IniRead(localPath, "Settings", "difficulty", "")
     sTowers := IniRead(localPath, "Settings", "requiredTowers", "")
@@ -871,9 +893,9 @@ Loop Files, stratSrc[1] "\*.strat" {
     sAuthor := IniRead(localPath, "Info", "author", "")
     sTitle := IniRead(localPath, "Info", "title", "")
     sTime := IniRead(localPath, "Info", "time", "")
-    sIncome := IniRead(localPath, "Info", "income", "")
-    sCoins := NormalizeRewardSize(IniRead(localPath, "Info", "coins", ""))
-    sGems := NormalizeRewardSize(IniRead(localPath, "Info", "gems", ""))
+    coinsR := ParseReward("coins", IniRead(localPath, "Info", "coins", ""))
+    gemsR := ParseReward("gems", IniRead(localPath, "Info", "gems", ""))
+    expR := ParseReward("exp", IniRead(localPath, "Info", "exp", ""))
     sModifiers := IniRead(localPath, "Settings", "modifiers", "")
     
     LoadedStrats.Push({
@@ -885,9 +907,9 @@ Loop Files, stratSrc[1] "\*.strat" {
         author: sAuthor,
         title: sTitle,
         time: sTime,
-        income: sIncome,
-        coins: sCoins,
-        gems: sGems,
+        coins: coinsR,
+        gems: gemsR,
+        exp: expR,
         modifiers: sModifiers,
         path: localPath,
         user: stratSrc[2],
@@ -897,8 +919,8 @@ Loop Files, stratSrc[1] "\*.strat" {
 }
 
 StartY := 15
-CardH  := 115
-CardW  := 600
+CardH  := 120
+CardW  := 610
 Gap    := 15
 
 ContentH := StartY
@@ -913,97 +935,114 @@ for index, strat in LoadedStrats {
     hFrameBg := CreateFrame(CardW, CardH, 10, "0xff161616", "0xff1d1d1d", "0x62302d2d")
     ChildGui.Add("Picture", "x" C1X " y" C1Y " w" CardW " h" CardH " +BackgroundTrans", "HBITMAP:*" hFrameBg)
 
-    hIconBg := CreateGradientButton(56, 56, 8, "0xff2f353f", "0xff15171b", "0xff000000", "0x232c3a50", "", "Segoe UI", 10, 1)
-    ChildGui.Add("Picture", "x" (C1X + 10) " y" (C1Y + 30) " w76 h76 +BackgroundTrans", "HBITMAP:*" hIconBg)
-    
-    diffImg := "Resources/Images/" strat.difficulty ".png"
-    if !FileExist(diffImg) {
-        if !strat.user
-            LogToConsole("Missing resource file: " diffImg, "Error", 0x1010)
-    } else {
-        ChildGui.Add("Picture", "x" (C1X + 20) " y" (C1Y + 40) " h56 w56 +BackgroundTrans", diffImg)
+    ; ---- Card layout (610 x 120) --------------------------------------------------
+    ; Every element owns a fixed box, so nothing can overlap. Long text is cut off with "...".
+    ;   |  [mode] [coins] [gems] [exp]    title                        [   Load   ]
+    ;   |   Molten  1425     0     120    [        map name        ]    [ Info ][ Remove ]
+    ;                                     Time    ~14m 20s
+    ; Each icon plate has its value written underneath, in the colour of that icon:
+    ;   mode = the game mode colour, coins = gold, gems = magenta, unit exp = cyan, nothing/zero = grey.
+    ; The map chip uses the map's difficulty rating colour (see lib\MapDatabase.ahk) with white text.
+    ; Towers and the description are in the Info popup.
+    ;
+    ; Horizontal map (card-relative):  accent 10-14 | plates 22..270 | text 286..474 | buttons 486..594
+    modeName := strat.difficulty != "" ? strat.difficulty : "Easy"
+    modeHex := ModeColorHex(modeName)
+
+    ; accent bar, same height as the plates
+    ChildGui.Add("Text", "x" (C1X + 10) " y" (C1Y + 20) " w4 h56 Background" modeHex, "")
+
+    ; Four 56x56 icon plates, 8px apart. The plate bitmap carries a 6px shadow margin, so it is
+    ; drawn 12px larger and placed 6px up/left of the visible plate.
+    ;   [plate x, icon file, label text, label colour, label font size, label box width]
+    hPlateBg := CreateGradientButton(68, 68, 10, "0xff2f353f", "0xff15171b", "0xff000000", "0x232c3a50", "", "Segoe UI", 10, 1)
+    diffImg := "Resources/Images/" ((modeName = "Night4" || modeName = "N4") ? "Night4" : modeName) ".png"
+    noneHex := "7E848E"
+    modeLblSize := StrLen(modeName) <= 8 ? 10 : (StrLen(modeName) <= 10 ? 9 : 8)
+    plates := [
+        ["plate_diff",  22,  diffImg,                                       modeName,         modeHex,                                       modeLblSize, 76],
+        ["plate_coins", 86,  StratRewardIcon("coins", strat.coins.size),   strat.coins.text, strat.coins.active ? "F9B519" : noneHex,       10,          64],
+        ["plate_gems",  150, StratRewardIcon("gems", strat.gems.size),     strat.gems.text,  strat.gems.active ? "E975F5" : noneHex,        10,          64],
+        ["plate_exp",   214, "Resources/Images/exp.png",                   strat.exp.text,   strat.exp.active ? "4FDDF9" : noneHex,         10,          64]
+    ]
+    for plate in plates {
+        px := C1X + plate[2], py := C1Y + 20
+        ChildGui.Add("Picture", "x" (px - 6) " y" (py - 6) " w68 h68 +BackgroundTrans", "HBITMAP:*" hPlateBg)
+        if (plate[3] != "" && FileExist(plate[3]))
+            ChildGui.Add("Picture", "x" (px + 4) " y" (py + 4) " w48 h48 +BackgroundTrans", plate[3])
+        else if (plate[1] = "plate_diff" && !strat.user)
+            LogToConsole("Missing resource file: " plate[3], "Error", 0x1010)
+
+        ; value label under the plate, centred on it
+        ChildGui.SetFont("s" plate[6] " Bold c" plate[5], "Segoe UI")
+        ChildGui.Add("Text", "x" (px + 28 - plate[7] // 2) " y" (py + 60) " w" plate[7] " h18 +0x200 +0x4000 Center +BackgroundTrans", plate[4])
     }
 
-    ; Every card has the same three plates: difficulty, coins, gems (full-size icons).
-    ; A currency the strat does not support (empty/missing coins= or gems= in [Info])
-    ; shows a greyed-out icon instead.
-    ChildGui.Add("Picture", "x" (C1X + 76) " y" (C1Y + 30) " w76 h76 +BackgroundTrans", "HBITMAP:*" hIconBg)
-    coinsImg := StratRewardIcon("coins", strat.coins)
-    if (coinsImg != "")
-        ChildGui.Add("Picture", "x" (C1X + 86) " y" (C1Y + 40) " h56 w56 +BackgroundTrans", coinsImg)
-
-    ChildGui.Add("Picture", "x" (C1X + 142) " y" (C1Y + 30) " w76 h76 +BackgroundTrans", "HBITMAP:*" hIconBg)
-    gemsImg := StratRewardIcon("gems", strat.gems)
-    if (gemsImg != "")
-        ChildGui.Add("Picture", "x" (C1X + 152) " y" (C1Y + 40) " h56 w56 +BackgroundTrans", gemsImg)
-
-
+    ; title (falls back to the file name when the strat has no title)
     ChildGui.SetFont("s11 Bold cWhite", "Segoe UI")
-    ChildGui.Add("Text", "x" (C1X + 15) " y" (C1Y + 12) " +BackgroundTrans", strat.title != "" ? strat.title : (strat.stem != "" ? strat.stem : "Unknown Strat"))
- 
-    ChildGui.SetFont("s9 w500 c7E848E", "Segoe UI")
-    helpDl1 := ChildGui.Add("Text", "x" (C1X + 580) " y" (C1Y + 10) " +BackgroundTrans", "?") 
-    helpDl1.OnEvent("Click", ((t, a, r, m, d) => (*) => StratInfo(t, a, r, m, d))(
-        strat.title, 
-        strat.author, 
-        strat.towers, 
-        (strat.modifiers != "" ? strat.modifiers : "none"), 
-        strat.desc
-    ))
+    ChildGui.Add("Text", "x" (C1X + 286) " y" (C1Y + 14) " w188 h24 +0x200 +0x4000 +BackgroundTrans", strat.title != "" ? strat.title : (strat.stem != "" ? strat.stem : "Unknown Strat"))
 
-    ChildGui.SetFont("s9 w400 cE2E4E7", "Segoe UI")
-    ChildGui.Add("Text", "x" (C1X + 345) " y" (C1Y + 15) " w225 +0x4000 +BackgroundTrans", (strat.towers != "" ? strat.towers : "None"))
-
-    ChildGui.SetFont("s9 w400 c7E848E", "Segoe UI")
-    ChildGui.Add("Text", "x" (C1X + 345) " y" (C1Y + 36) " w225 h30 +BackgroundTrans", strat.desc)
-
-    if (strat.difficulty = "Hardcore") {
-        badgeColor1 := "0xFFAB457B", badgeColor2 := "0xFF5C2040"
-    } else if (strat.difficulty = "Molten") {
-        badgeColor1 := "0xFFE09334", badgeColor2 := "0xFF8F5413"
-    } else if (strat.difficulty = "Frost") {
-        badgeColor1 := "0xff34a9e0", badgeColor2 := "0xff17559c"
-    } else if (strat.difficulty = "Fallen") {
-        badgeColor1 := "0xff17559c", badgeColor2 := "0xff351570"
+    ; map name chip (188 x 32), coloured by the map's difficulty rating, white text.
+    ; Night modes (or a strat with no map) show the mode instead.
+    if (strat.map != "" && !IsNightMode(modeName)) {
+        mapInfo := GetMapInfo(strat.map)
+        mapHex := mapInfo ? mapInfo.color : "8A94A6"
+        mapText := mapInfo ? mapInfo.name : strat.map
     } else {
-        badgeColor1 := "0xb900ff2a", badgeColor2 := "0xff1a5f39"
+        mapHex := modeHex
+        mapText := modeName
     }
+    AddBadge(ChildGui, C1X + 286, C1Y + 44, 188, 32, mapHex, mapText, 14)
 
-    hgmMode := CreateGradientButton(102, 28, 3, badgeColor1, badgeColor2, "0x40000000", "0x7effffff", strat.difficulty != "" ? strat.difficulty : "Easy", "Segoe UI", 11, 1)
-    ChildGui.Add("Picture", "x" (C1X + 228) " y" (C1Y + 35) " w102 h28 +BackgroundTrans", "HBITMAP:*" hgmMode)
+    ; time row (plain text, no emoji glyphs)
+    ChildGui.SetFont("s9 w600 c7E848E", "Segoe UI")
+    ChildGui.Add("Text", "x" (C1X + 286) " y" (C1Y + 84) " w52 h18 +0x200 +BackgroundTrans", "Time")
+    ChildGui.SetFont("s9 w500 cC5CBD3", "Segoe UI")
+    ChildGui.Add("Text", "x" (C1X + 340) " y" (C1Y + 84) " w140 h18 +0x200 +0x4000 +BackgroundTrans", strat.time != "" ? strat.time : "Unknown")
 
-    ChildGui.SetFont("s9 w500 c9CA4B0", "Segoe UI")
-    ChildGui.Add("Text", "x" (C1X + 238) " y" (C1Y + 65) " +BackgroundTrans", "🕒 " (strat.time != "" ? strat.time : "Unknown"))
-    ChildGui.Add("Text", "x" (C1X + 238) " y" (C1Y + 83) " w170 +0x4000 +BackgroundTrans", "⛃ " (strat.income != "" ? strat.income : "Unknown"))
-
-    loadW := 100
+    ; Load (108 x 36). Button bitmaps carry a 6px shadow margin on every side, so they are drawn 12px larger
+    ; than the button and placed 6px up/left; the click area sits exactly on the visible button.
     if ((strat.difficulty = "Hardcore" || strat.difficulty = "Voidcore")) {
-        hBtnNormal := CreateGradientButton(loadW, 38, 8, "0xff961ea1", "0xff5f237a", "0x40000000", "0x5dffffff", "Load", "Segoe UI", 14, 1)
-        hBtnHover := CreateGradientButton(loadW, 38, 8, "0xffea00ff", "0xff8d32b7", "0x60000000", "0x5dffffff", "Load", "Segoe UI", 14, 1)
+        hBtnNormal := CreateGradientButton(120, 48, 8, "0xff961ea1", "0xff5f237a", "0x40000000", "0x5dffffff", "Load", "Segoe UI", 13, 1)
+        hBtnHover := CreateGradientButton(120, 48, 8, "0xffea00ff", "0xff8d32b7", "0x60000000", "0x5dffffff", "Load", "Segoe UI", 13, 1)
     } else {
-        hBtnNormal := CreateGradientButton(loadW, 38, 8, "0xFF147A6E", "0xFF214B75", "0x40000000", "0x5dffffff", "Load", "Segoe UI", 14, 1)
-        hBtnHover := CreateGradientButton(loadW, 38, 8, "0xFF1CB5A2", "0xFF3272B7", "0x60000000", "0x5dffffff", "Load", "Segoe UI", 14, 1)
+        hBtnNormal := CreateGradientButton(120, 48, 8, "0xFF147A6E", "0xFF214B75", "0x40000000", "0x5dffffff", "Load", "Segoe UI", 13, 1)
+        hBtnHover := CreateGradientButton(120, 48, 8, "0xFF1CB5A2", "0xFF3272B7", "0x60000000", "0x5dffffff", "Load", "Segoe UI", 13, 1)
     }
-
-    picLoadBtn := ChildGui.Add("Picture", "x" (C1X + 415) " y" (C1Y + 68) " w" loadW " h38 +BackgroundTrans", "HBITMAP:*" hBtnNormal)
-
-    dl1 := ChildGui.Add("Text", "x" (C1X + 415) " y" (C1Y + 68) " w" loadW " h38 +BackgroundTrans +0x200 Center", "")
+    picLoadBtn := ChildGui.Add("Picture", "x" (C1X + 480) " y" (C1Y + 18) " w120 h48 +BackgroundTrans", "HBITMAP:*" hBtnNormal)
+    dl1 := ChildGui.Add("Text", "x" (C1X + 486) " y" (C1Y + 24) " w108 h36 +BackgroundTrans +0x200 Center", "")
     dl1.SetFont("cFFFFFF s10 Bold", "Segoe UI")
-    
     dl1.StratFile := strat.fileName
     dl1.StratPath := strat.path
     dl1.OnEvent("Click", DownloadStrat)
+    dl1.PicControl := picLoadBtn
+    dl1.ImgNormal := hBtnNormal
+    dl1.ImgHover := hBtnHover
+    GradientButtons.Push(dl1)
 
-    dl1.PicControl := picLoadBtn  
-    dl1.ImgNormal := hBtnNormal   
-    dl1.ImgHover := hBtnHover    
-    GradientButtons.Push(dl1) 
+    ; Info (52 x 28): towers, modifiers, description
+    infoNormal := CreateGradientButton(64, 40, 8, "0xff3a404c", "0xff1d2026", "0x40000000", "0x5dffffff", "Info", "Segoe UI", 10, 1)
+    infoHover := CreateGradientButton(64, 40, 8, "0xff4d5564", "0xff292d35", "0x60000000", "0x5dffffff", "Info", "Segoe UI", 10, 1)
+    picInfo := ChildGui.Add("Picture", "x" (C1X + 480) " y" (C1Y + 60) " w64 h40 +BackgroundTrans", "HBITMAP:*" infoNormal)
+    info1 := ChildGui.Add("Text", "x" (C1X + 486) " y" (C1Y + 66) " w52 h28 +BackgroundTrans +0x200 Center", "")
+    info1.OnEvent("Click", ((t, a, r, m, d) => (*) => StratInfo(t, a, r, m, d))(
+        strat.title != "" ? strat.title : strat.stem,
+        strat.author != "" ? strat.author : "Unknown",
+        strat.towers != "" ? strat.towers : "none",
+        (strat.modifiers != "" ? strat.modifiers : "none"),
+        strat.desc
+    ))
+    info1.PicControl := picInfo
+    info1.ImgNormal := infoNormal
+    info1.ImgHover := infoHover
+    GradientButtons.Push(info1)
 
+    ; Remove (52 x 28)
     if (strat.user) {
-        rmNormal := CreateGradientButton(65, 38, 8, "0xFFA33A48", "0xFF5C1D26", "0x40000000", "0x5dffffff", "Remove", "Segoe UI", 10, 1)
-        rmHover := CreateGradientButton(65, 38, 8, "0xFFD24A5C", "0xFF8A2A37", "0x60000000", "0x5dffffff", "Remove", "Segoe UI", 10, 1)
-        picRm := ChildGui.Add("Picture", "x" (C1X + 520) " y" (C1Y + 68) " w65 h38 +BackgroundTrans", "HBITMAP:*" rmNormal)
-        rm1 := ChildGui.Add("Text", "x" (C1X + 520) " y" (C1Y + 68) " w65 h38 +BackgroundTrans +0x200 Center", "")
+        rmNormal := CreateGradientButton(64, 40, 8, "0xFFA33A48", "0xFF5C1D26", "0x40000000", "0x5dffffff", "Remove", "Segoe UI", 10, 1)
+        rmHover := CreateGradientButton(64, 40, 8, "0xFFD24A5C", "0xFF8A2A37", "0x60000000", "0x5dffffff", "Remove", "Segoe UI", 10, 1)
+        picRm := ChildGui.Add("Picture", "x" (C1X + 536) " y" (C1Y + 60) " w64 h40 +BackgroundTrans", "HBITMAP:*" rmNormal)
+        rm1 := ChildGui.Add("Text", "x" (C1X + 542) " y" (C1Y + 66) " w52 h28 +BackgroundTrans +0x200 Center", "")
         rm1.OnEvent("Click", ((p, t) => (*) => StratLib_Remove(p, t))(strat.path, strat.title != "" ? strat.title : strat.stem))
         rm1.PicControl := picRm
         rm1.ImgNormal := rmNormal
@@ -1235,6 +1274,15 @@ MainGui.SetFont("s9 w400 cFFFFFF")
 WebhookLinkCtrl2.OnEvent("Change", CheckWebhookLink2)
 EnableWebhookLink2()
 WebhookSepatateTriumphScreenshotsCtrl.OnEvent("Click", EnableWebhookLink2)
+
+MainGui.SetFont("s9 w400 cAAAAAA")
+global WebhookUserIDLbl := MainGui.Add("Text", "x30 y320 w55 h20 Hidden BackgroundTrans", "User ID:")
+MainGui.SetFont("s9 w400 c000000")
+global WebhookUserIDCtrl := MainGui.Add("Edit", "x90 y317 w140 h22 Hidden vWebhookUserID", WebhookUserID)
+MainGui.SetFont("s9 w400 cFFFFFF")
+global WebhookPingOnWinCtrl := MainGui.Add("Checkbox", "x245 y319 w95 h20 Hidden vPingOnWin Checked" PingOnWin, "Ping on Win")
+global WebhookPingOnLossCtrl := MainGui.Add("Checkbox", "x350 y319 w100 h20 Hidden vPingOnLoss Checked" PingOnLoss, "Ping on Loss")
+global WebhookPingOnTimescaleCtrl := MainGui.Add("Checkbox", "x460 y319 w185 h20 Hidden vPingOnTimescale Checked" PingOnTimescale, "Timescale Depleted")
 global Tab4_Info := MainGui.Add("Text", "x30 y400 w640 h100 Hidden", "Webhook sends real-time logs, screenshots, and currency stats to your Discord server.`nUseful to check if your macro is working while being outside.`nHow to get a webhook URL: Create your own Discord Server > Open any channel's settings > Integrations > Create Webhook > Copy Webhook URL.`nYou can also set up a Discord bot by clicking on the 'Discord Webhook' text to view the Discord bot settings.")
 MainGui.SetFont("s12 w400 cFFFFFF")
 global Tab4_Btn1 := MainGui.Add("Text", "x30  y500 w300 h40 Center Background0e0e0f +Border 0x200 Hidden", "Test Webhook")
@@ -1245,7 +1293,7 @@ Tab4_Btn2.OnEvent("Click", SaveWebhookSettings)
 HoverEffect.Push(Tab4_Btn1) 
 HoverEffect.Push(Tab4_Btn2) 
 
-DiscordWebhookTab.Push(Tab4_Title,Tab4_Line1,Tab4_Line2,Tab4_Btn1,Tab4_Btn2,Tab4_Info,Tab4_Lbl1,WebhookEnabledCtrl,SendCurrCtrl,WebhookLinkCtrl,WebhookLinkCtrl2,DebugLogsCtrl,WebhookScreenshotsCtrl,WebhookTriumphScreenshotsCtrl,WebhookSepatateTriumphScreenshotsCtrl)
+DiscordWebhookTab.Push(Tab4_Title,Tab4_Line1,Tab4_Line2,Tab4_Btn1,Tab4_Btn2,Tab4_Info,Tab4_Lbl1,WebhookEnabledCtrl,SendCurrCtrl,WebhookLinkCtrl,WebhookLinkCtrl2,DebugLogsCtrl,WebhookScreenshotsCtrl,WebhookTriumphScreenshotsCtrl,WebhookSepatateTriumphScreenshotsCtrl,WebhookUserIDLbl,WebhookUserIDCtrl,WebhookPingOnWinCtrl,WebhookPingOnLossCtrl,WebhookPingOnTimescaleCtrl)
 
 ;bot tab
 
@@ -1379,8 +1427,8 @@ global PotatoModeCtrl := MainGui.Add("Checkbox", "x570 y172 Hidden", "Potato Mod
 PotatoModeCtrl.Value := (PotatoMode = 1)
 
 MainGui.SetFont("s9 w400 cAAAAAA")
-global Tab1_Lbl3 := MainGui.Add("Text", "x530 y220 w100 h20 Hidden BackgroundTrans", "Timescale:")
-global TimeScaleModeCtrl := MainGui.Add("DropDownList", "x595 y216 w80 Hidden", ["OFF","1.5x","2x"])
+global Tab1_Lbl3 := MainGui.Add("Text", "x502 y192 w62 h20 Hidden BackgroundTrans", "Timescale:")
+global TimeScaleModeCtrl := MainGui.Add("DropDownList", "x566 y187 w74 Hidden", ["OFF","1.5x","2x"])
 TimeScaleModeCtrl.Text := TimeScaleMode
 
 MainGui.SetFont("s9 w400 cAAAAAA")
@@ -1503,7 +1551,7 @@ DiscordImg.OnEvent("Click", DiscordLink)
 global YoutubeImg := MainGui.Add("Picture", "x642 y520 w24 h-1 Hidden BackgroundTrans", "Resources\youtube.png")
 YoutubeImg.OnEvent("Click", YouTubeLink)
 
-MainGui.Title := "Ultimate Macro"
+MainGui.Title := "Unlimited Macro"
 MainGui.Show("w700 h565")
 
 if (AlwaysOnTop = 1) {
@@ -1513,6 +1561,25 @@ if (AlwaysOnTop = 1) {
 }
 
 SetTimer(() => RemoveInitialFocus(), -50)
+
+; ---- Auto-save: settings are written silently in the background -------------
+; (the "Save" buttons still work exactly as before and still show a confirmation)
+for ctrl in [UseUpgradeHCtrl, UseRestartBtnCtrl, UsePlayAgainBtnCtrl, CheckTheMapCtrl, UseNumbersForHotbarCtrl,
+             AutoCloseChatCtrl, CollectPlaytimeRewardsCtrl, DebugConsoleCtrl, PotatoModeCtrl, UseVipServerCtrl, AlwaysOnTopCtrl]
+    try ctrl.OnEvent("Click", (*) => SaveAllSettingsQuiet())
+try TimeScaleModeCtrl.OnEvent("Change", (*) => SaveAllSettingsQuiet())
+for ctrl in [ChainKeyCtrl, BeatKeyCtrl, CaravanKeyCtrl, CancelPlacementKeyCtrl, UpgradeTowerGCtrl, UpgradeTowerGBCtrl,
+             RaiseDeadKeyCtrl, HologramKeyCtrl, RepoKeyCtrl, VipLinkCtrl, UpgradeDelayCtrl,
+             PlaceTowerKeyCtrl, UpgradeTowerKeyCtrl, AlignCameraKeyCtrl, ChangeDJTrackKeyCtrl, SellTowerKeyCtrl,
+             DeleteTowerRecordingKeyCtrl, RecordInputsKeyCtrl, HoloKeyCtrl, ChangeTargetsCTRL,
+             MouseSpeedUpDown, MouseDelayUpDown, KeyDelayUpDown]
+    try ctrl.OnEvent("Change", (*) => SetTimer(SaveAllSettingsQuiet, -750))
+
+for ctrl in [WebhookEnabledCtrl, SendCurrCtrl, DebugLogsCtrl, WebhookScreenshotsCtrl, WebhookTriumphScreenshotsCtrl,
+             WebhookSepatateTriumphScreenshotsCtrl, WebhookPingOnWinCtrl, WebhookPingOnLossCtrl, WebhookPingOnTimescaleCtrl, BotEnabledCtrl]
+    try ctrl.OnEvent("Click", (*) => SaveWebhookSettingsQuiet())
+for ctrl in [WebhookLinkCtrl, WebhookLinkCtrl2, WebhookUserIDCtrl, BotTokenCtrl, ChannelIDCtrl, WebhookUserIDCtrl2]
+    try ctrl.OnEvent("Change", (*) => SetTimer(SaveWebhookSettingsQuiet, -750))
 
 global CurrentTab := "Tab1"
 TabCtrl[1].SetFont("cFFFFFF")
@@ -1809,10 +1876,11 @@ ShowTabContent(tab) {
     global ChildGui
     if (tab = "Tab1") {
         for ctrl in [Tab1_Section1, Tab1_Line1, Tab1_Lbl1, Strategy1Ctrl, Tab1_Btn1, Tab1_Btn2,
-                     Tab1_Lbl2, Strategy2Ctrl, Tab1_Btn3, Tab1_Btn4, RotateStrategiesCtrl, AutoEquipCtrl, Tab1_Section2, Tab1_Line2,
-                     Tab1_AddBtn, Tab1_FolderBtn, Tab1_RefreshBtn,
+                     Tab1_Lbl2, Strategy2Ctrl, Tab1_Btn3, Tab1_Btn4, RotateStrategiesCtrl, AutoEquipCtrl, Tab1_Lbl3, TimeScaleModeCtrl, Tab1_Section2, Tab1_Line2,
+                     Tab1_AddBtn, Tab1_FolderBtn, Tab1_RefreshBtn, Tab1_ModBtn,
                      Tab1_Start, Tab1_Stop]
             ctrl.Visible := true
+        TimeScaleModeCtrl.Text := TimeScaleMode
         EnableStratRotation()
         ShowChildGui()
     } else if (tab = "Tab2") {
@@ -1834,7 +1902,7 @@ ShowTabContent(tab) {
         for ctrl in [Tab5_Section1, Tab5_Line1, Tab5_Lbl1, ChainKeyCtrl,
                      Tab5_Lbl2, BeatKeyCtrl, Tab5_Lbl3, CaravanKeyCtrl,
                      Tab5_Lbl44, RaiseDeadKeyCtrl, Tab5_Lbl55, Tab5_Lbl56, HologramKeyCtrl, RepoKeyCtrl,
-                     Tab5_Lbl99, Tab5_LblUPG, Tab5_LblUPGBTM, CancelPlacementKeyCtrl, UpgradeTowerGCtrl, UpgradeTowerGBCtrl, Tab1_Lbl3, Tab1_Lbl4, TimeScaleModeCtrl, UpgradeDelayCtrl,
+                     Tab5_Lbl99, Tab5_LblUPG, Tab5_LblUPGBTM, CancelPlacementKeyCtrl, UpgradeTowerGCtrl, UpgradeTowerGBCtrl, Tab1_Lbl4, UpgradeDelayCtrl,
                      Tab5_Section2, Tab5_Line2, Tab5_Help6,
                      UseRestartBtnCtrl, Tab5_Help4, UsePlayAgainBtnCtrl, Tab5_Help5,
                      CheckTheMapCtrl, UseNumbersForHotbarCtrl, UseUpgradeHCtrl, Tab5_Help7, Tab5_Help11, Tab5_Help12, PotatoModeCtrl, DebugConsoleCtrl,
@@ -1887,6 +1955,58 @@ ShowTabContent(tab) {
 NormalizeRewardSize(value) {
     v := StrLower(RegExReplace(value, "[()\s]", ""))
     return (v != "" && InStr("|small|medium|large|largest|", "|" v "|")) ? v : ""
+}
+
+; Icon tiers, smallest to largest, as [name, minimum amount]. They are ONLY used to pick which icon to draw when
+; a strat gives an amount but no tier name (for example "coins=1425"). The number printed under an icon is
+; never taken from here: it always comes from the strat file.
+RewardTiers(kind) {
+    static tiers := Map(
+        "coins", [["small", 0], ["medium", 1000], ["large", 1500], ["largest", 2500]],
+        "gems",  [["small", 0], ["medium", 100], ["large", 200], ["largest", 400]]
+    )
+    return tiers.Has(kind) ? tiers[kind] : []
+}
+
+; Reads one reward line (coins= / gems= / exp=) from a strat's [Info] section.
+; Accepted forms, in any order and any case:
+;   coins=1425, large      coins=large, 1425      coins=1425      coins=large      coins=0      coins=   (or missing)
+; "1,425" counts as one number. Unknown words are ignored, so a bad line can never break the library.
+; Returns {amount, size, text, active}:
+;   amount : integer, or "" when no number was given
+;   size   : small / medium / large / largest, or "" (chooses the icon; worked out from the amount if not written)
+;   text   : what is printed under the icon: "1425"; "Large" when only a tier is known; "-" when nothing is known
+;   active : true = the strat earns this currency (coloured icon and text); false = grey (0, empty or missing)
+; exp has no tiers, only a number.
+ParseReward(kind, raw) {
+    amount := "", size := ""
+    s := RegExReplace(Trim(raw), "[()~]", "")
+    s := RegExReplace(s, "(?<=\d),(?=\d{3}(?!\d))", "")      ; 1,425 -> 1425
+    for tok in StrSplit(s, [",", ";", "|", "/", " ", "`t"], " `t") {
+        tok := StrLower(tok)
+        if (tok = "")
+            continue
+        if RegExMatch(tok, "^\d{1,9}$") {
+            amount := Integer(tok)
+        } else if InStr("|small|medium|large|largest|", "|" tok "|") {
+            size := tok
+        }
+    }
+    tiers := RewardTiers(kind)
+    if (kind = "exp") {
+        size := ""
+    } else if (amount != "" && amount = 0) {
+        size := ""                                              ; an explicit 0 means "none"
+    } else if (size = "" && amount != "" && tiers.Length > 0) {
+        size := tiers[1][1]
+        for t in tiers {
+            if (amount >= t[2])
+                size := t[1]
+        }
+    }
+    active := (amount != "" && amount > 0) || size != ""
+    text := (amount != "") ? amount : (size != "" ? StrTitle(size) : "-")
+    return {amount: amount, size: size, text: text, active: active}
 }
 
 ; kind = "coins" or "gems"; looks for Resources/Images/<kind>_<size>.png.
@@ -3663,7 +3783,7 @@ TestWebhook(ctrl, *) {
         whr.Open("POST", v.WebhookLink, false)
         whr.SetRequestHeader("Content-Type", "application/json")
         whr.SetTimeouts(0, 3000, 3000, 3000)
-        whr.Send('{"content": "✅ Webhook test successful! Ultimate Macro TDS is connected."}')
+        whr.Send('{"content": "✅ Webhook test successful! Unlimited Macro TDS is connected."}')
         if (whr.Status = 200 || whr.Status = 204)
             ModernMsgBox("Success", "Webhook test successful!", "OK")
         else
@@ -3695,7 +3815,7 @@ TestBot(ctrl, *) {
         whr.SetRequestHeader("Authorization", "Bot " v.BotToken)
         whr.SetRequestHeader("Content-Type", "application/json")
         whr.SetTimeouts(0, 3000, 3000, 3000)
-        whr.Send('{"content": "✅ Bot test successful! Ultimate Macro TDS is connected."}')
+        whr.Send('{"content": "✅ Bot test successful! Unlimited Macro TDS is connected."}')
         
         if (whr.Status = 200 || whr.Status = 201 || whr.Status = 204) {
             ModernMsgBox("Success", "Bot test successful! Message sent to channel.", "OK")
@@ -3726,7 +3846,16 @@ TestBot(ctrl, *) {
     }
 }
 
-SaveWebhookSettings(ctrl, *) {
+SaveWebhookSettings(ctrl := 0, *) {
+    SaveWebhookSettingsInternal(true)
+}
+
+SaveWebhookSettingsQuiet(*) {
+    SaveWebhookSettingsInternal(false)
+}
+
+SaveWebhookSettingsInternal(showMsg := true) {
+    global WebhookUserID, PingOnWin, PingOnLoss, PingOnTimescale
     global WebhookLink, WebhookLink2, WebhookEnabled, SendCurrenciesEnabled, WebhookDebugLogs, WebhookScreenshots, WebhookTriumphScreenshots, WebhookSepatateTriumphScreenshots, UserID, ChannelID, BotEnabled, BotToken
     v := MainGui.Submit(0)
     WebhookLink := v.WebhookLink
@@ -3741,6 +3870,13 @@ SaveWebhookSettings(ctrl, *) {
     BotEnabled := v.BotEnabled
     ChannelID := v.ChannelID
     UserID := v.WebhookUserID2
+    WebhookUserID := Trim(v.WebhookUserID)
+    PingOnWin := v.PingOnWin
+    PingOnLoss := v.PingOnLoss
+    PingOnTimescale := v.PingOnTimescale
+    IniWrite(PingOnWin, SettingsFile, "Webhook", "PingOnWin")
+    IniWrite(PingOnLoss, SettingsFile, "Webhook", "PingOnLoss")
+    IniWrite(PingOnTimescale, SettingsFile, "Webhook", "PingOnTimescale")
     IniWrite(BotToken, BotSettings, "Token", "BotToken")
     IniWrite(BotEnabled, BotSettings, "Settings", "Enabled")
     IniWrite(ChannelID, BotSettings, "Settings", "Channel")
@@ -3761,7 +3897,8 @@ SaveWebhookSettings(ctrl, *) {
         SetTimer(ProcessCommands, 0)
     }
 
-    MsgBox("All discord settings have been successfully saved!", "Ultimate Macro", 0x1040)
+    if (showMsg)
+        MsgBox("All discord settings have been successfully saved!", "Unlimited Macro", 0x1040)
 }
 
 
@@ -3793,7 +3930,16 @@ NormalizeKey(keyName) {
 }
 
 
-SaveAllSettings(ctrl, *) {
+SaveAllSettings(ctrl := 0, *) {
+    SaveAllSettingsInternal(true)
+}
+
+SaveAllSettingsQuiet(*) {
+    SaveAllSettingsInternal(false)
+}
+
+SaveAllSettingsInternal(showMsg := true) {
+    global UpgradeDelay
     global ChainKey, BeatKey, CaravanKey, CancelPlacementKey, TimeScaleMode, UseTimeScale
     global TimeScaleMultiplier, VipLink, UseVipServer, AlwaysOnTop, LegacyMode, DebugConsole
     global PotatoMode, UseRestartBtn, UsePlayAgainBtn, CheckTheMap
@@ -3853,21 +3999,49 @@ SaveAllSettings(ctrl, *) {
         {val: tempChangeTargetsKey, name: "Change Targets"}
     ]
 
+    hasKeyError := false
     for item in KeysToCheck {
         if (item.val = "") {
-            MsgBox("Error: Empty hotkey detected!`n`n" 
-            . "The hotkey is assigned to: `"" item.name "`"`n"
-            . "Please change it before saving.", "Empty Hotkey", 0x10)
-            return
+            hasKeyError := true
+            if (showMsg) {
+                MsgBox("Error: Empty hotkey detected!`n`n" 
+                . "The hotkey is assigned to: `"" item.name "`"`n"
+                . "Please change it before saving.", "Empty Hotkey", 0x10)
+                return
+            }
+            break
         }
         if UsedKeys.Has(item.val) {
-            MsgBox("Error: Duplicate hotkey detected!`n`n" 
-                 . "The hotkey is assigned to: `"" UsedKeys[item.val] "`"`n"
-                 . "And also that hotkey is assigned to: `"" item.name "`"`n`n"
-                 . "Please change it before saving.", "Duplicate Hotkey", 0x10)
-            return 
+            hasKeyError := true
+            if (showMsg) {
+                MsgBox("Error: Duplicate hotkey detected!`n`n" 
+                     . "The hotkey is assigned to: `"" UsedKeys[item.val] "`"`n"
+                     . "And also that hotkey is assigned to: `"" item.name "`"`n`n"
+                     . "Please change it before saving.", "Duplicate Hotkey", 0x10)
+                return 
+            }
+            break
         }
         UsedKeys[item.val] := item.name
+    }
+
+    if (hasKeyError) {
+        ; auto-save only: keep the last valid hotkeys until the conflict is fixed
+        tempChainKey := ChainKey
+        tempBeatKey := BeatKey
+        tempCaravanKey := CaravanKey
+        tempCancelPlacementKey := CancelPlacementKey
+        tempUpgradeTowerGKey := UpgradeTowerGKey
+        tempUpgradeTowerGBKey := UpgradeTowerGBKey
+        tempPlaceTowerKey := PlaceTowerKey
+        tempUpgradeTowerKey := UpgradeTowerKey
+        tempAlignCameraKey := AlignCameraKey
+        tempChangeDJTrackKey := ChangeDJTrackKey
+        tempSellTowerKey := SellTowerKey
+        tempDeleteTowerRecordingKey := DeleteTowerRecordingKey
+        tempRecordInputsKey := RecordInputsKey
+        tempHoloKey := HoloKey
+        tempChangeTargetsKey := ChangeTargetsKey
     }
 
     ChainKey := tempChainKey
@@ -3894,7 +4068,15 @@ SaveAllSettings(ctrl, *) {
     HologramKey := HologramKeyCtrl.Value
     RepoKey := RepoKeyCtrl.Value
 
-    RegisterRecordingHotkeys(oldRecordingKeys)
+    recordingKeysChanged := false
+    newRecordingKeys := [PlaceTowerKey, UpgradeTowerKey, AlignCameraKey, ChangeDJTrackKey,
+        SellTowerKey, DeleteTowerRecordingKey, RecordInputsKey, HoloKey, ChangeTargetsKey]
+    for i, oldKey in oldRecordingKeys {
+        if (oldKey != newRecordingKeys[i])
+            recordingKeysChanged := true
+    }
+    if (showMsg || recordingKeysChanged)
+        RegisterRecordingHotkeys(oldRecordingKeys)
 
     TimeScaleMode := (TimeScaleModeCtrl.Text = "") ? "OFF" : TimeScaleModeCtrl.Text
     VipLink := VipLinkCtrl.Value
@@ -3913,7 +4095,8 @@ SaveAllSettings(ctrl, *) {
     DefaultMouseSpeed := MouseSpeedUpDown.Value
     MouseDelay := MouseDelayUpDown.Value
     KeyDelay := KeyDelayUpDown.Value
-    UpgradeDelayCtrl.Value := UpgradeDelay
+    if (Trim(UpgradeDelayCtrl.Value) != "")
+        UpgradeDelay := UpgradeDelayCtrl.Value
     
     IniWrite(ChainKey, SettingsFile, "Hotkeys", "Chain")
     IniWrite(BeatKey, SettingsFile, "Hotkeys", "Beat")
@@ -3930,7 +4113,8 @@ SaveAllSettings(ctrl, *) {
     IniWrite(DebugConsole, SettingsFile, "Options", "DebugConsole")
     IniWrite(PotatoMode, SettingsFile, "Options", "PotatoMode")
     IniWrite(AlwaysOnTop, SettingsFile, "Options", "AlwaysOnTop")
-    IniWrite(LegacyModeCtrl.Value, SettingsFile, "Options", "LegacyMode")
+    if (showMsg)
+        IniWrite(LegacyModeCtrl.Value, SettingsFile, "Options", "LegacyMode")
     IniWrite(UseRestartBtn, SettingsFile, "Options", "UseRestartBtn")
     IniWrite(UsePlayAgainBtn, SettingsFile, "Options", "UsePlayAgainBtn")
     IniWrite(CheckTheMap, SettingsFile, "Options", "CheckTheMap")
@@ -3976,23 +4160,26 @@ SaveAllSettings(ctrl, *) {
         MainGui.Opt("-AlwaysOnTop")
     }
 
-    if (LegacyModeCtrl.Value = 1 && LegacyMode = 0) {
-        if A_ScreenHeight != 1080 && A_ScreenWidth != 1920 {
-            MsgBox("WARNING! Legacy mode works only for 1920x1080!", "Warning", 0x1030)
+    if (showMsg) {
+        if (LegacyModeCtrl.Value = 1 && LegacyMode = 0) {
+            if A_ScreenHeight != 1080 && A_ScreenWidth != 1920 {
+                MsgBox("WARNING! Legacy mode works only for 1920x1080!", "Warning", 0x1030)
+            }
+            Reload
         }
-        Reload
-    }
-     if (LegacyModeCtrl.Value = 0 && LegacyMode = 1) {
-        Reload
-    }
+         if (LegacyModeCtrl.Value = 0 && LegacyMode = 1) {
+            Reload
+        }
 
-    LegacyMode := LegacyModeCtrl.Value
+        LegacyMode := LegacyModeCtrl.Value
+    }
     
     SetDefaultMouseSpeed(DefaultMouseSpeed)
     SetMouseDelay(MouseDelay)
     SetKeyDelay(KeyDelay)
 
-    MsgBox("All settings have been successfully saved!", "Ultimate Macro", 0x1040)
+    if (showMsg)
+        MsgBox("All settings have been successfully saved!", "Unlimited Macro", 0x1040)
 }
 
 SaveAllSettingsMULTIPLAYER(ctrl, *) {
@@ -4378,7 +4565,9 @@ RunStrategy(stratFile := "", skipRestart := false) {
         JoinGame()
     }
 
-    if (readyX = 0 && readyY = 0) {
+    ; Night restart after a loss: the green Ready button may still be hidden behind the loadout
+    ; screen, so skip waitReady(). The loadout and Ready clicks below find their own buttons.
+    if (readyX = 0 && readyY = 0 && !(IsNightMode() && IsRestarting)) {
         waitReady()
     }
 
@@ -4429,7 +4618,7 @@ RunStrategy(stratFile := "", skipRestart := false) {
 }
 
 PlayStrategy() {
-    global canUseAbility, MultiplayerEnabled, StateFile
+    global canUseAbility, MultiplayerEnabled, StateFile, IsRestarting
 
     IniWrite(A_TickCount, StateFile, "State", "TimeWhenStartedPlaying")
     SetTimer(UseAbilities, 750)
@@ -4480,15 +4669,29 @@ PlayStrategy() {
     Click(ScaleX(unfocusX), ScaleY(unfocusY))
     LogToConsole("All strategy steps completed...")
     if (IsNightMode()) {
-        LogToConsole("Night strategy completed: searching for the skip button (2 min max)...")
-        if SkipNightCutscene(120000) {
+        LogToConsole("Night strategy completed: waiting for the skip button or a loss (20 min max)...")
+        NightMatchLost := false
+        ; The match can still run for several minutes after the last step, so wait long enough to
+        ; cover the whole remaining match.
+        if SkipNightCutscene(1200000, true) {
             if ClickNightReturnToLobby() {
                 AuditLog("INFO", "Night", "Run completed - returned to lobby, starting again in 10 seconds")
                 LogToConsole("Returned to lobby: starting the Night strategy again in 10 seconds...")
                 Sleep(10000)
+                IsRestarting := false
                 RunStrategy("", true)
                 return
             }
+        } else if (NightMatchLost) {
+            ; Lost after the strategy finished: the skip button will never show up. Run the normal
+            ; loss handling (CheckRestart): Night 4 presses Restart Match, Night 3 relaunches Roblox.
+            NightMatchLost := false
+            AuditLog("WARN", "Night", "Match lost after the strategy finished - handling the loss")
+            LogToConsole("Night match lost after the strategy finished: handling the loss...")
+            IsRestarting := false
+            Sleep(1500)  ; let the results buttons finish appearing before CheckRestart looks for them
+            RunStrategy("", false)
+            return
         }
     }
     Loop {
@@ -5273,8 +5476,9 @@ CheckRestart() {
                     Sleep 5000
                 }
 
-                if (IsNightMode()) {
-                    ; Night: do not press Restart. Close Roblox and start the loop again.
+                if (IsNightMode() && !IsNight4()) {
+                    ; Night 3: do not press Restart. Close Roblox and start the loop again.
+                    ; (Night 4 falls through and presses Restart Match below.)
                     AuditLog("WARN", "Night", "Match lost - closing and relaunching Roblox")
                     LogToConsole("Night match lost: closing Roblox and restarting the macro loop.")
                     IsRestarting := false
@@ -5291,6 +5495,8 @@ CheckRestart() {
                 res := resRestart.score > resRestart2.score ? resRestart : resRestart2
                 restartFinder := () => BestRestartResult(w, h)
                 IsRestarting := true
+                if (IsNightMode())
+                    AuditLog("WARN", "Night", "Match lost - pressing Restart Match")
                 LogToConsole("Restarting the match")
                 if !(MultiplayerEnabled) { 
                     ClickResultButton(res, restartFinder, "Restart")
@@ -5828,7 +6034,22 @@ SelectNightVariant() {
     }
 }
 
-SkipNightCutscene(timeoutMs := 60000) {
+; True when the results screen shows the Restart button (the same check CheckRestart uses for a loss).
+NightLossScreenVisible() {
+    getRobloxPos(,, &w, &h)
+    if (w <= 0 || h <= 0)
+        return false
+    res := BestRestartResult(w, h)
+    if (res.status = "success" && res.score > 0.64)
+        return true
+    ; Fallback: the "You Lost" banner (same image and region the watchdog uses).
+    lost := AdvancedImageSearch("Resources\YouLost.png", w * 0.2, h * 0.2, w * 0.6, h * 0.7)
+    return (lost.status = "success" && lost.score > 0.7)
+}
+
+SkipNightCutscene(timeoutMs := 60000, watchLoss := false) {
+    global NightMatchLost
+    lastLossCheck := 0
     ; The cutscene skip must be held for about 5 seconds. A hold can silently fail
     ; (focus lost, press not registered), so after releasing, check that the button is
     ; gone and hold again if it is still on screen.
@@ -5866,6 +6087,16 @@ SkipNightCutscene(timeoutMs := 60000) {
         if (holds > 0) {
             LogToConsole("Night: cutscene skipped.")
             return true
+        }
+        ; No skip button on screen: if the match was lost it will never appear, so look for the
+        ; loss screen (about once a second) and bail out so the caller can restart.
+        if (watchLoss && A_TickCount - lastLossCheck >= 1000) {
+            lastLossCheck := A_TickCount
+            if NightLossScreenVisible() {
+                NightMatchLost := true
+                LogToConsole("Night: loss screen detected.")
+                return false
+            }
         }
         Sleep(300)
     }
@@ -7038,6 +7269,10 @@ activateTimescale() {
         if (res.status = "success" && res.score >= 0.67) {
             Click(res.x, res.y+55)
             LogToConsole("Failed to activate timescale! You are out of tickets.", true, false)
+            timescaleMention := (PingOnTimescale = 1) ? GetDiscordMention(WebhookUserID) : ""
+            SendToWebhookInstant("⚠️ **Timescale Tickets Depleted!**`nFailed to activate timescale because you are out of tickets.", 16724526, true, timescaleMention)
+            UseTimeScale := false
+            TimescaleActive := false
 
         } else {
             res := AdvancedImageSearch("Resources/confirm.png", Round(w * 0.25), Round(h * 0.45), Round(w * 0.50), Round(h * 0.55))
@@ -8390,7 +8625,7 @@ SendToWebhook(message) {
     }
 }
 
-SendToWebhookInstant(message, embedColor := 3447003, flush := true) {
+SendToWebhookInstant(message, embedColor := 3447003, flush := true, mention := "") {
     global WebhookInstantQueue, WebhookInstantTimerActive, WebhookEnabled
     if (!WebhookEnabled || message = "" || Trim(message) = "") { 
         return
@@ -8399,7 +8634,7 @@ SendToWebhookInstant(message, embedColor := 3447003, flush := true) {
         FlushWebhookQueue()
     }
 
-    WebhookInstantQueue.Push({msg: message, color: embedColor})
+    WebhookInstantQueue.Push({msg: message, color: embedColor, mention: mention})
     
     if (!WebhookInstantTimerActive) {
         WebhookInstantTimerActive := true
@@ -8420,6 +8655,7 @@ ProcessWebhookInstantQueue() {
     allMessages := ""
     finalColor := 3447003
     hasCustomColor := false
+    finalMention := ""
     
     while (WebhookInstantQueue.Length > 0) {
         item := WebhookInstantQueue.RemoveAt(1)
@@ -8427,6 +8663,8 @@ ProcessWebhookInstantQueue() {
             continue
             
         allMessages .= (allMessages != "") ? "`n" item.msg : item.msg
+        if (item.HasProp("mention") && item.mention != "" && finalMention = "")
+            finalMention := item.mention
         
         if (item.color != 3447003) {
             finalColor := item.color
@@ -8451,6 +8689,8 @@ ProcessWebhookInstantQueue() {
     
     escaped := StrReplace(StrReplace(StrReplace(allMessages, "\", "\\"), '"', '\"'), "`n", "\n")
     payload := '{"embeds":[{"description":"' escaped '","color":' finalColor '}]}'
+    if (finalMention != "")
+        payload := '{"content":"' finalMention '","embeds":[{"description":"' escaped '","color":' finalColor '}]}'
     
     try {
         whr.Open("POST", WebhookLink, true)
@@ -8878,6 +9118,63 @@ CreateGradientButton(w, h, r, colorStart, colorEnd, shadowColor, strokeColor, bt
     return hbm
 }
 
+; Draws a rounded badge with centred white text and adds it to `gui` as a Picture.
+; (x, y, w, h) is the VISIBLE badge. CreateGradientButton keeps a 6px shadow margin on every side,
+; so the bitmap is made 12px larger and placed 6px up/left of the badge.
+; textSize is in pixels (GDI+ units); it is the largest size tried, and it shrinks automatically if the
+; text would not fit on one line.
+AddBadge(gui, x, y, w, h, hex, label, textSize := 14) {
+    colors := BadgeColors(hex)
+    fit := FitBadgeText(label, w - 16, textSize)
+    hbm := CreateGradientButton(w + 12, h + 12, 8, colors[1], colors[2], "0x40000000", "0x40ffffff", fit.text, "Segoe UI", fit.size, 1)
+    return gui.Add("Picture", "x" (x - 6) " y" (y - 6) " w" (w + 12) " h" (h + 12) " +BackgroundTrans", "HBITMAP:*" hbm)
+}
+
+; Finds the largest bold Segoe UI size (from startSize down to minSize, in pixels) at which `text` fits on one
+; line in maxW pixels. If even minSize is too wide, the text is cut and ends with "...". The text is measured
+; with GDI+ itself, so it adapts to any map or mode name. Returns {size, text}.
+FitBadgeText(text, maxW, startSize, minSize := 9) {
+    size := startSize, shown := text
+    try {
+        hdcMem := CreateCompatibleDC()
+        hbm := CreateDIBSection(8, 8)
+        obm := SelectObject(hdcMem, hbm)
+        G := Gdip_GraphicsFromHDC(hdcMem)
+        hFamily := Gdip_FontFamilyCreate("Segoe UI")
+        hFormat := Gdip_StringFormatCreate(0x1000 | 0x4000)      ; no wrap, no clip: measure the full single line
+        RC := Buffer(16, 0)
+        NumPut("float", 0, "float", 0, "float", 4000, "float", 200, RC)
+        cut := 0
+        Loop {
+            shown := cut ? RTrim(SubStr(text, 1, StrLen(text) - cut)) "..." : text
+            hFont := Gdip_FontCreate(hFamily, size, 1)
+            m := StrSplit(Gdip_MeasureString(G, shown, hFont, hFormat, &RC), "|")
+            Gdip_DeleteFont(hFont)
+            if (Number(m[3]) <= maxW)
+                break
+            if (size > minSize) {
+                size := Max(minSize, size - 0.5)
+            } else if (StrLen(text) - cut > 4) {
+                cut += 1
+            } else {
+                break
+            }
+        }
+        Gdip_DeleteStringFormat(hFormat)
+        Gdip_DeleteFontFamily(hFamily)
+        Gdip_DeleteGraphics(G)
+        SelectObject(hdcMem, obm)
+        DeleteObject(hbm)
+        DeleteDC(hdcMem)
+    } catch {
+        ; measuring failed for some reason: fall back to a size based on the text length
+        len := StrLen(text)
+        size := len <= 16 ? startSize : (len <= 20 ? startSize - 2 : startSize - 4)
+        shown := text
+    }
+    return {size: size, text: shown}
+}
+
 CreateFrame(w, h, r, bgColor, strokeOuter, strokeInner) {
     hbm := CreateDIBSection(w, h), hdcMem := CreateCompatibleDC()
     obm := SelectObject(hdcMem, hbm), G := Gdip_GraphicsFromHDC(hdcMem)
@@ -9198,7 +9495,7 @@ ProcessCommands(*) {
             }
 
             currentTime := A_Hour ":" A_Min ":" A_Sec
-            statusMsg .= "\n-# Ultimate Macro Bot • " currentTime
+            statusMsg .= "\n-# Unlimited Macro Bot • " currentTime
 
             Discord.SendEmbed(statusMsg, "3447003")
         }
@@ -9224,4 +9521,302 @@ ProcessCommands(*) {
     }
     
     command_buffer := []
+}
+
+
+; ===================== Discord mention helper =====================
+GetDiscordMention(rawId) {
+    if (rawId = "" || Trim(rawId) = "")
+        return ""
+    cleanId := RegExReplace(Trim(rawId), "[<@!>]", "")
+    cleanId := Trim(cleanId)
+    if (cleanId = "" || !RegExMatch(cleanId, "^\d+$"))
+        return ""
+    return "<@" cleanId ">"
+}
+
+; ===================== Strategy Modifiers editor =====================
+; Edits the "modifiers=" line of the strategy in the "Strategy:" box (Strategy 1).
+ShowModifiersGui(*) {
+    global MainGui, Strategy1Ctrl, ModGui, ModStratPath, ModifierCheckboxes, ModifiersTextCtrl
+
+    stratPath := Trim(Strategy1Ctrl.Value)
+    if (stratPath = "" || !FileExist(stratPath)) {
+        MsgBox("Choose a strategy in the 'Strategy:' field first.`nModifiers are saved straight into that strategy file.", "Strategy Modifiers", 0x1040)
+        return
+    }
+    ModStratPath := stratPath
+
+    if (ModGui) {
+        try ModGui.Destroy()
+    }
+    ModGui := Gui("+Owner" MainGui.Hwnd, "Strategy Modifiers")
+    ModGui.BackColor := "121212"
+
+    ModGui.SetFont("s10 w400 c3A86FF", "Segoe UI")
+    ModGui.Add("Text", "x20 y14 w300 h22", "Strategy Modifiers")
+    ModGui.SetFont("s9 w400 cAAAAAA", "Segoe UI")
+    SplitPath(stratPath, &stratName)
+    ModGui.Add("Text", "x20 y38 w620 h20", "Editing: " stratName)
+    ModGui.SetFont("s9 w400 cFFFFFF", "Segoe UI")
+
+    names := [["Glass", "Gla"], ["Hidden", "Hid"], ["Exploding", "Exp"], ["Limitation", "Lim"], ["Committed", "Com"], ["Flying", "Fly"],
+              ["Fog", "Fog"], ["Quarantine", "Qua"], ["Inflation", "Inf"], ["Broke", "Bro"], ["Speedy", "Spe"], ["Healthy", "Hea"]]
+    ModifierCheckboxes := []
+    for idx, pair in names {
+        col := Mod(idx - 1, 6)
+        row := (idx - 1) // 6
+        cb := ModGui.Add("Checkbox", "x" (20 + col * 105) " y" (68 + row * 26) " w100 h20", pair[1])
+        cb.OnEvent("Click", OnModifierCheckboxClick)
+        ModifierCheckboxes.Push({ ctrl: cb, name: pair[1], code: pair[2] })
+    }
+
+    ModGui.SetFont("s9 w400 cAAAAAA", "Segoe UI")
+    ModGui.Add("Text", "x20 y129 w50 h20 BackgroundTrans", "Active:")
+    ModGui.SetFont("s9 w400 c000000", "Segoe UI")
+    ModifiersTextCtrl := ModGui.Add("Edit", "x75 y126 w565 h22")
+    ModifiersTextCtrl.OnEvent("Change", OnModifiersTextChange)
+
+    ModGui.SetFont("s10 w400 cFFFFFF", "Segoe UI")
+    saveBtn := ModGui.Add("Text", "x20 y166 w315 h30 +Border 0x200 Center", "Save to strategy")
+    saveBtn.OnEvent("Click", OnSaveModifiersBtnClick)
+    closeBtn := ModGui.Add("Text", "x345 y166 w295 h30 +Border 0x200 Center", "Close")
+    closeBtn.OnEvent("Click", CloseModifiersGui)
+    ModGui.OnEvent("Close", CloseModifiersGui)
+    ModGui.OnEvent("Escape", CloseModifiersGui)
+
+    UpdateModifierUI(IniRead(stratPath, "Settings", "modifiers", ""))
+    ModGui.Show("w660 h212")
+}
+
+CloseModifiersGui(*) {
+    global ModGui, ModifiersTextCtrl
+    try SetTimer(DebouncedSaveModifiers, 0)
+    try DebouncedSaveModifiers()
+    ModifiersTextCtrl := 0
+    if (ModGui) {
+        try ModGui.Destroy()
+    }
+    ModGui := 0
+}
+
+NormalizeModifierToken(token) {
+    tok := Trim(token)
+    if (tok = "")
+        return ""
+    tokLower := StrLower(tok)
+
+    static modMap := [
+        { code: "Gla", prefix: "gl", name: "glass" },
+        { code: "Hid", prefix: "hi", name: "hidden" },
+        { code: "Exp", prefix: "ex", name: "exploding" },
+        { code: "Lim", prefix: "li", name: "limitation" },
+        { code: "Com", prefix: "co", name: "committed" },
+        { code: "Fly", prefix: "fl", name: "flying" },
+        { code: "Fog", prefix: "fo", name: "fog",        aliases: ["foggy"] },
+        { code: "Qua", prefix: "qu", name: "quarantine", aliases: ["arm", "armored"] },
+        { code: "Inf", prefix: "in", name: "inflation",  aliases: ["reg", "regeneration"] },
+        { code: "Bro", prefix: "br", name: "broke",      aliases: ["slo", "slow"] },
+        { code: "Spe", prefix: "sp", name: "speedy" },
+        { code: "Hea", prefix: "he", name: "healthy",    aliases: ["str", "strong"] }
+    ]
+
+    for item in modMap {
+        if (tokLower = StrLower(item.code)
+            || tokLower = item.prefix
+            || tokLower = item.name
+            || (StrLen(tokLower) >= 2 && SubStr(tokLower, 1, 2) = item.prefix)
+            || InStr(item.name, tokLower) = 1) {
+            return item.code
+        }
+        if (item.HasProp("aliases")) {
+            for alias in item.aliases {
+                if (tokLower = alias || (StrLen(tokLower) >= 3 && InStr(alias, tokLower) = 1))
+                    return item.code
+            }
+        }
+    }
+
+    if (StrLen(tok) >= 3)
+        return StrUpper(SubStr(tok, 1, 1)) . StrLower(SubStr(tok, 2, 2))
+    return tok
+}
+
+ModifierCodeToName(code) {
+    global ModifierCheckboxes
+    codeLower := StrLower(Trim(code))
+    for item in ModifierCheckboxes {
+        if (StrLower(item.code) = codeLower || StrLower(item.name) = codeLower)
+            return item.name
+    }
+    return code
+}
+
+; Fills the checkboxes + text box from a modifiers string. Only writes to the strategy file when autoSave is true.
+UpdateModifierUI(modString, autoSave := false) {
+    global ModifierCheckboxes, ModifiersTextCtrl, ModLastCodes
+
+    activeMap := Map()
+    normalizedCodes := []
+    fullNamesList := []
+
+    Loop Parse, modString, "," {
+        c := NormalizeModifierToken(A_LoopField)
+        if (c != "" && !activeMap.Has(c)) {
+            activeMap[c] := true
+            normalizedCodes.Push(c)
+            fullNamesList.Push(ModifierCodeToName(c))
+        }
+    }
+
+    for item in ModifierCheckboxes {
+        try item.ctrl.Value := activeMap.Has(item.code) ? 1 : 0
+    }
+
+    cleanCodesStr := ""
+    for idx, code in normalizedCodes
+        cleanCodesStr .= (idx = 1 ? "" : ", ") . code
+
+    fullNamesStr := ""
+    for idx, fn in fullNamesList
+        fullNamesStr .= (idx = 1 ? "" : ", ") . fn
+
+    ModLastCodes := cleanCodesStr
+    if IsObject(ModifiersTextCtrl) {
+        try ModifiersTextCtrl.Value := fullNamesStr
+    }
+
+    if (autoSave)
+        SaveModifiersToStrategyFile(cleanCodesStr)
+}
+
+OnModifierCheckboxClick(*) {
+    global ModifierCheckboxes, ModifiersTextCtrl
+
+    activeCodes := []
+    activeFullNames := []
+    for item in ModifierCheckboxes {
+        if (item.ctrl.Value = 1) {
+            activeCodes.Push(item.code)
+            activeFullNames.Push(item.name)
+        }
+    }
+
+    ; keep any custom (non-checkbox) modifiers that were typed into the text box
+    currentRaw := IsObject(ModifiersTextCtrl) ? ModifiersTextCtrl.Value : ""
+    Loop Parse, currentRaw, "," {
+        tok := Trim(A_LoopField)
+        if (tok = "")
+            continue
+        c := NormalizeModifierToken(tok)
+        isStandard := false
+        for item in ModifierCheckboxes {
+            if (c = item.code) {
+                isStandard := true
+                break
+            }
+        }
+        if (!isStandard) {
+            alreadyIn := false
+            for ac in activeCodes {
+                if (ac = c) {
+                    alreadyIn := true
+                    break
+                }
+            }
+            if (!alreadyIn) {
+                activeCodes.Push(c)
+                activeFullNames.Push(tok)
+            }
+        }
+    }
+
+    newCodesStr := ""
+    for idx, c in activeCodes
+        newCodesStr .= (idx = 1 ? "" : ", ") . c
+
+    newFullNamesStr := ""
+    for idx, fn in activeFullNames
+        newFullNamesStr .= (idx = 1 ? "" : ", ") . fn
+
+    if IsObject(ModifiersTextCtrl)
+        ModifiersTextCtrl.Value := newFullNamesStr
+    SaveModifiersToStrategyFile(newCodesStr)
+}
+
+OnModifiersTextChange(*) {
+    global ModifierCheckboxes, ModifiersTextCtrl
+
+    if !IsObject(ModifiersTextCtrl)
+        return
+
+    activeMap := Map()
+    Loop Parse, ModifiersTextCtrl.Value, "," {
+        c := NormalizeModifierToken(A_LoopField)
+        if (c != "")
+            activeMap[c] := true
+    }
+    for item in ModifierCheckboxes {
+        try item.ctrl.Value := activeMap.Has(item.code) ? 1 : 0
+    }
+
+    SetTimer(DebouncedSaveModifiers, -600)
+}
+
+DebouncedSaveModifiers() {
+    global ModifiersTextCtrl, ModLastCodes
+
+    if !IsObject(ModifiersTextCtrl)
+        return
+
+    activeMap := Map()
+    normalizedCodes := []
+    fullNamesList := []
+    Loop Parse, ModifiersTextCtrl.Value, "," {
+        c := NormalizeModifierToken(A_LoopField)
+        if (c != "" && !activeMap.Has(c)) {
+            activeMap[c] := true
+            normalizedCodes.Push(c)
+            fullNamesList.Push(ModifierCodeToName(c))
+        }
+    }
+    cleanCodesStr := ""
+    for idx, c in normalizedCodes
+        cleanCodesStr .= (idx = 1 ? "" : ", ") . c
+    fullNamesStr := ""
+    for idx, fn in fullNamesList
+        fullNamesStr .= (idx = 1 ? "" : ", ") . fn
+
+    ; nothing actually changed (e.g. the box was only filled in when the window opened) -> don't touch the file
+    if (cleanCodesStr = ModLastCodes)
+        return
+
+    SaveModifiersToStrategyFile(cleanCodesStr)
+
+    if (ModifiersTextCtrl.Value != fullNamesStr && !WinActive("ahk_id " ModifiersTextCtrl.Hwnd)) {
+        try ModifiersTextCtrl.Value := fullNamesStr
+    }
+}
+
+OnSaveModifiersBtnClick(*) {
+    global ModifiersTextCtrl
+    if !IsObject(ModifiersTextCtrl)
+        return
+    UpdateModifierUI(ModifiersTextCtrl.Value, true)
+    fullNames := ModifiersTextCtrl.Value
+    MsgBox("Strategy modifiers saved:`n`nActive: " (fullNames != "" ? fullNames : "(None)"), "Modifiers Saved", 0x1040)
+}
+
+SaveModifiersToStrategyFile(modStr) {
+    global ModStratPath, ModLastCodes
+    if (ModStratPath = "" || !FileExist(ModStratPath))
+        return
+    try {
+        ; one-time safety copy of the original strategy before the first edit
+        if !FileExist(ModStratPath ".bak")
+            FileCopy(ModStratPath, ModStratPath ".bak")
+        IniWrite(modStr, ModStratPath, "Settings", "modifiers")
+        ModLastCodes := modStr
+        LogToConsole("Saved modifiers to " ModStratPath ": " modStr)
+    }
 }

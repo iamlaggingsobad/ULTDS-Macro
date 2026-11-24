@@ -1,0 +1,123 @@
+[Info]
+title=Gem Suicide Exp V1
+author=Viperdio
+desc=
+coins=0
+gems=largest
+exp=137
+time=~10m
+
+[Settings]
+map=Wretched Front
+difficulty=Hardcore
+requiredTowers=Electroshocker, Crook Boss, Farm, Kingpin
+modifiers=
+autoChain=OFF
+autoCaravan=OFF
+autoDropTheBeat=OFF
+autoSkip=ON
+abilitySpam=OFF
+moveEnabled=1
+moveDirection=S
+moveDuration=2835
+
+[DO NOT EDIT]
+width=1920
+height=1009
+
+[Steps]
+SpawnTower(548, 712, 3, Farm1)
+SpawnTower(537, 643, 3, Farm2)
+SpawnTower(546, 576, 3, Farm3)
+UpgradeTower(Farm3)
+UpgradeTower(Farm2)
+UpgradeTower(Farm1)
+UpgradeTower(Farm1)
+UpgradeTower(Farm2)
+SpawnTower(1155, 787, 1, Electroshocker1)
+UpgradeTower(Electroshocker1)
+UpgradeTower(Farm3)
+UpgradeTower(Farm3)
+UpgradeTower(Electroshocker1)
+UpgradeTower(Farm2)
+UpgradeTower(Farm1)
+SpawnTower(612, 584, 3, Farm4)
+UpgradeTower(Farm4)
+UpgradeTower(Farm4)
+UpgradeTower(Farm4)
+SpawnTower(1098, 790, 1, Electroshocker2)
+UpgradeTower(Electroshocker2)
+UpgradeTower(Electroshocker2)
+SpawnTower(565, 519, 3, Farm5)
+UpgradeTower(Farm5)
+UpgradeTower(Farm5)
+UpgradeTower(Farm5)
+SpawnTower(627, 520, 3, Farm6)
+UpgradeTower(Farm6)
+UpgradeTower(Farm6)
+SpawnTower(565, 459, 3, Farm7)
+UpgradeTower(Farm7)
+UpgradeTower(Electroshocker1)
+SpawnTower(1040, 793, 2, Crook Boss1)
+UpgradeTower(Crook Boss1)
+UpgradeTower(Crook Boss1)
+UpgradeTower(Farm6)
+UpgradeTower(Farm7)
+UpgradeTower(Farm7)
+SpawnTower(627, 459, 3, Farm8)
+UpgradeTower(Farm8)
+UpgradeTower(Farm8)
+UpgradeTower(Farm8)
+SpawnTower(591, 393, 3, Farm9)
+UpgradeTower(Farm9)
+UpgradeTower(Farm9)
+UpgradeTower(Farm9)
+SpawnTower(501, 407, 3, Farm10)
+UpgradeTower(Farm10)
+UpgradeTower(Farm10)
+UpgradeTower(Farm10)
+UpgradeTower(Electroshocker1)
+UpgradeTower(Electroshocker1)
+UpgradeTower(Electroshocker2)
+UpgradeTower(Electroshocker2)
+UpgradeTower(Electroshocker2)
+SpawnTower(1097, 732, 2, Crook Boss2)
+UpgradeTower(Crook Boss2)
+UpgradeTower(Crook Boss2)
+SpawnTower(1151, 720, 2, Crook Boss3)
+UpgradeTower(Crook Boss3)
+UpgradeTower(Crook Boss3)
+SpawnTower(1066, 923, 2, Crook Boss4)
+UpgradeTower(Crook Boss4)
+UpgradeTower(Crook Boss4)
+SpawnTower(1199, 848, 1, Electroshocker3)
+UpgradeTower(Electroshocker3)
+UpgradeTower(Electroshocker3)
+UpgradeTower(Electroshocker3)
+UpgradeTower(Electroshocker3)
+UpgradeTower(Electroshocker3)
+SpawnTower(1216, 777, 1, Electroshocker4)
+UpgradeTower(Electroshocker4)
+UpgradeTower(Electroshocker4)
+UpgradeTower(Electroshocker4)
+UpgradeTower(Electroshocker4)
+SpawnTower(1229, 718, 1, Electroshocker5)
+UpgradeTower(Electroshocker5)
+UpgradeTower(Electroshocker5)
+UpgradeTower(Electroshocker5)
+UpgradeTower(Electroshocker5)
+SpawnTower(1205, 919, 1, Electroshocker6)
+UpgradeTower(Electroshocker6)
+UpgradeTower(Electroshocker6)
+UpgradeTower(Electroshocker6)
+UpgradeTower(Electroshocker6)
+SpawnTower(999, 923, 1, Electroshocker7)
+UpgradeTower(Electroshocker7)
+UpgradeTower(Electroshocker7)
+UpgradeTower(Electroshocker7)
+UpgradeTower(Electroshocker7)
+SpawnTower(600, 300, 4, Kingpin1)
+UpgradeTower(Kingpin1)
+UpgradeTower(Kingpin1)
+UpgradeTower(Kingpin1)
+UpgradeTower(Kingpin1)

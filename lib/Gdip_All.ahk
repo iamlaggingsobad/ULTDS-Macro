@@ -3760,11 +3760,16 @@ GetPrimaryMonitor()
 }
 
 ; Screenshot of the primary monitor only (Gdip_BitmapFromScreen() with no argument
-; captures every monitor stitched together). Falls back to all screens if no primary is found.
+; captures every monitor stitched together). Uses AutoHotkey's own monitor functions;
+; the library's GetPrimaryMonitor() throws on the numeric entries MDMF_Enum() returns.
+; Falls back to all screens if the monitor lookup fails.
 PrimaryMonitorBitmap()
 {
-	n := GetPrimaryMonitor()
-	return Gdip_BitmapFromScreen(n ? n : 0)
+	try {
+		MonitorGet(MonitorGetPrimary(), &l, &t, &r, &b)
+		return Gdip_BitmapFromScreen(l "|" t "|" (r - l) "|" (b - t))
+	}
+	return Gdip_BitmapFromScreen(0)
 }
 ; ----------------------------------------------------------------------------------------------------------------------
 ; Name ..........: MDMF - Multiple Display Monitor Functions
