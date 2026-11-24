@@ -867,10 +867,12 @@ if (lastUpdate != "0") {
 ;     }
 ; }
 
+; With Strategy Rotation off the "Strategy 2" row is hidden, so everything below it moves up 30px and the
+; library gets 30px more height (see EnableStratRotation).
 global FrameX := 30
-global FrameY := 262
+global FrameY := (RotateStrategies = 1) ? 262 : 232
 global FrameW := 640
-global FrameH := 224
+global FrameH := (RotateStrategies = 1) ? 224 : 254
 global ContentH := 400
 global CurrentScrollPos := 0
 global SliderH := 30
@@ -1975,7 +1977,8 @@ RewardTiers(kind) {
 ; Returns {amount, size, text, active}:
 ;   amount : integer, or "" when no number was given
 ;   size   : small / medium / large / largest, or "" (chooses the icon; worked out from the amount if not written)
-;   text   : what is printed under the icon: "1425"; "Large" when only a tier is known; "-" when nothing is known
+;   text   : what is printed under the icon: the amount ("1425" / "0"), or "?" when it is unknown (coins/gems with only a
+;            tier, or exp left blank). Coins/gems that are empty or missing print "0". A tier name is never printed.
 ;   active : true = the strat earns this currency (coloured icon and text); false = grey (0, empty or missing)
 ; exp has no tiers, only a number.
 ParseReward(kind, raw) {
@@ -2005,7 +2008,17 @@ ParseReward(kind, raw) {
         }
     }
     active := (amount != "" && amount > 0) || size != ""
-    text := (amount != "") ? amount : (size != "" ? StrTitle(size) : "-")
+    ; Text under the icon is only ever a number: a tier name is never printed.
+    ;   amount given            -> the amount (an explicit 0 shows "0")
+    ;   coins/gems, nothing/missing -> "0"
+    ;   coins/gems, only a tier -> "?"   (the amount is unknown; the tier still picks the icon)
+    ;   exp, blank/missing      -> "?"
+    if (amount != "")
+        text := amount
+    else if (kind = "exp")
+        text := "?"
+    else
+        text := (size != "") ? "?" : "0"
     return {amount: amount, size: size, text: text, active: active}
 }
 
@@ -2203,12 +2216,12 @@ OnScroll(wp, lp, msg, hwnd) {
 }
 
 EnableStratRotation(*) {
-    global RotateStrategies, SwapAmount, SwapUnit
-    
+    global RotateStrategies, SwapAmount, SwapUnit, FrameY, FrameH, CurrentScrollPos, ContentH, SliderH, Slider
+
     v := MainGui.Submit(false)
     RotateStrategies := v.RotateStrategies
     IniWrite(RotateStrategies, SettingsFile, "Options", "RotateStrategies")
-    
+
     show := (RotateStrategies = 1)
 
     Tab1_Lbl2.Visible := show
@@ -2229,12 +2242,39 @@ EnableStratRotation(*) {
         IniWrite(AutoEquip, SettingsFile, "Options", "AutoEquip")
         SwapAmount := SwapAmountCtrl.Text
         SwapUnit := SwapUnitCtrl.Text
-        AutoEquipCtrl.Move(357, 190)
         IniWrite(SwapAmount, SettingsFile, "Options", "SwapAmount")
         IniWrite(SwapUnit, SettingsFile, "Options", "SwapUnit")
-    } else {
-        AutoEquipCtrl.Move(155, 190)
     }
+
+    ; Layout: the "Strategy 2" row is only there with rotation on. Without it, the checkbox row and the whole
+    ; library section move up by one row (30px) so there is no empty gap under the Strategy row.
+    dy := show ? 0 : -30
+    AutoEquipCtrl.Move(show ? 357 : 155, 190 + dy)
+    for item in [[RotateStrategiesCtrl, 190], [SwapAfterLbl, 188], [SwapAmountCtrl, 186], [SwapUnitCtrl, 186],
+                 [Tab1_Lbl3, 192], [TimeScaleModeCtrl, 187],
+                 [Tab1_Section2, 223], [Tab1_Line2, 250],
+                 [Tab1_AddBtn, 223], [Tab1_FolderBtn, 223], [Tab1_RefreshBtn, 223], [Tab1_ModBtn, 223]]
+        item[1].Move(, item[2] + dy)
+
+    ; The library frame follows: starts 30px higher and is 30px taller, so it still ends above Start/Stop.
+    newFrameY := 262 + dy
+    newFrameH := 224 - dy
+    if (newFrameH != FrameH || newFrameY != FrameY) {
+        FrameY := newFrameY
+        FrameH := newFrameH
+        try {
+            ; back to the top, then rebuild the scrollbar thumb for the new frame height
+            if (CurrentScrollPos > 0)
+                DllCall("ScrollWindow", "Ptr", ChildGui.Hwnd, "Int", 0, "Int", CurrentScrollPos, "Ptr", 0, "Ptr", 0)
+            CurrentScrollPos := 0
+            SliderH := (ContentH <= FrameH) ? FrameH : Max(30, Round(FrameH * (FrameH / ContentH)))
+            hThumb := CreateScrollThumb(6, SliderH, 3, "0xFF6EA7FF", "0xff4076ce", "0xd4d4d4")
+            Slider.Value := "HBITMAP:*" hThumb
+            Slider.Move(0 + (FrameW - 10), 0, 6, SliderH)
+            ShowChildGui()
+        }
+    }
+    try WinRedraw(MainGui.Hwnd)
 }
 
 EnableAutoEquip(*) {

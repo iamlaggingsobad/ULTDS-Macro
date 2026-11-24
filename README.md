@@ -105,11 +105,15 @@ All keys are optional. Leave a value empty or omit the key if it is unknown; the
 | Key | Description |
 |---|---|
 | `title`, `author`, `desc` | Descriptive text shown on the card. |
-| `coins`, `gems` | An amount, a tier (`small`, `medium`, `large`, `largest`), or both in any order (e.g. `1425, large`). The amount is displayed under the icon and the tier selects the icon. With only an amount, the tier is chosen automatically (see `RewardTiers` in `Main.ahk`). |
+| `coins`, `gems` | An amount, a tier (`small`, `medium`, `large`, `largest`), or both in any order (e.g. `1425, large`). The amount is displayed under the icon and the tier selects the icon; the tier name itself is never shown. With only an amount, the tier is chosen automatically (see `RewardTiers` in `Main.ahk`). |
 | `exp` | Unit EXP, as a number. |
 | `time` | Free text shown on the card. |
 
-Missing values appear greyed out with a `-`; an explicit `0` appears greyed out as `0`.
+Library card display:
+
+- `coins` / `gems` with an amount show that amount. Empty or missing values show a greyed-out `0`.
+- `coins` / `gems` with only a tier (e.g. `large`) show the tier's icon with `?`, because the amount is unknown.
+- `exp` left blank or missing shows `?`; an explicit `0` shows a greyed-out `0`.
 
 ### `[Settings]` keys
 
