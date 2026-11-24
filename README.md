@@ -1,53 +1,86 @@
-# Unlimited Macro (TDS)
+# Unlimited Macro
 
-An automation macro for Roblox **Tower Defense Simulator**: record strategies, replay them, and loop matches hands-free.
+Automation macro for Roblox **Tower Defense Simulator**. Record strategies, replay them, and loop matches hands-free.
 
-> Based on *Ultimate Macro* by Darksen, released under the GPL-3.0 license (see `LICENSE`).
-> This is an unofficial personal-use fork of version 1.3.3a with the changes listed below.
+> Based on *Ultimate Macro* by Darksen, licensed under GPL-3.0. See [License](#license).
+
+---
 
 ## Features
 
-* **Record & Play Custom Strategies** - Record tower placements, upgrades, abilities and actions, then replay them.
-* **Strategy Library** - Your strategies live in the `Strategies` folder and show up as cards with difficulty, reward and info icons.
-* **Smart Game Handling** - Detects the end of a match, checks the map, and uses Restart or Play Again to loop.
-* **Strategy Rotation** - Swap between two strategies after a set number of runs or minutes.
-* **Auto-Equip Towers** - Equips the towers your strategy needs before joining.
-* **Timescale Support** - 1.5x and 2x Timescale tickets.
-* **Playtime Rewards** - Collects daily and playtime rewards from the lobby.
-* **Night Event Support** - Night 3 and Night 4, including the "Your Loadout" step.
-* **Discord Webhook** - Logs, screenshots and currency stats sent to your server.
-* **Multiple Upgrade Paths** - Split-path towers and special towers (Hacker, Juggernaut and others).
-* **VIP Server Support** - Paste a private server link to run in your own server.
+### Automation
+- **Record and replay** – Capture tower placements, upgrades, abilities and other actions, then play them back.
+- **Smart game handling** – Detects the end of a match, verifies the map, and uses Restart or Play Again to keep looping.
+- **Strategy rotation** – Alternate between two strategies after a set number of runs or minutes.
+- **Auto-equip towers** – Equips the towers a strategy requires before joining.
+- **Timescale support** – Uses 1.5x and 2x Timescale tickets, and stops requesting them once they run out.
+- **Playtime rewards** – Collects daily and playtime rewards from the lobby.
+- **Night events** – Full Night 3 and Night 4 support, including the "Your Loadout" step.
+- **Advanced towers** – Split upgrade paths and special towers such as Hacker and Juggernaut.
+- **VIP servers** – Paste a private server link to run in your own server.
 
-## What's different in this fork
+### Strategy Library
+- Strategies are stored in the `Strategies` folder next to `Main.ahk` and displayed as cards showing game mode, coins, gems and unit EXP.
+- **Add** imports a `.strat` file, **Open folder** browses the library, **Refresh** reloads it, and **Remove** deletes a strategy.
+- Strategies you record appear alongside imported ones (saved in `%AppData%\Unlimited_Macro\Recordings`).
+- **Strategy Modifiers editor** – Toggle modifiers (Glass, Hidden, Exploding, and more) and the `modifiers=` line of the selected strategy is updated automatically. A one-time `.bak` backup is created before the first edit.
 
-Changes compared with the original Ultimate Macro **1.3.3a**.
+### Reward Detection
+End-of-match Coins, Gems and EXP are read through a multi-step pipeline whose results are cross-checked:
 
-* **Renamed to Unlimited Macro.** The data folder is now `%AppData%\Unlimited_Macro`. On first launch, anything in the old `%AppData%\Ultimate_Macro` folder (settings, recordings, logs) is copied across automatically; the old folder is left as it is.
+1. Read-only Roblox memory read (`lib/RobloxMemory.ahk`, configured via `Resources/client_layout.txt`)
+2. Adaptive OCR
+3. Up to three retries
 
-**Strategy library**
-* Strategies live in the `Strategies` folder next to `Main.ahk`. In the Main tab use **Add** to import a `.strat`, **Open folder** to browse it, **Refresh** to reload, and **Remove** on a card to delete one. Strategies you record are listed too (saved in `%AppData%\Unlimited_Macro\Recordings`).
-* The bundled strategies and the community download feature are gone: the library only shows your own strats.
-* Each card shows four icon plates with their value underneath: game mode, coins (gold), gems (magenta) and unit EXP (cyan). The values come from the strat's `[Info]` section (see below). Anything empty or missing is shown grey with a `-`, an explicit `0` is shown grey as `0`, and the macro still loads the strat normally.
-* Library icons moved to `Resources\Images`.
+Detailed output is written to `%AppData%\Unlimited_Macro\Logs\reward_debug.log`.
 
-**Night events (Night 3 and Night 4)**
-* Use `difficulty=Night4` in strat files for Night 4 (the old `N4` still works). Night skips the map check, resets and aligns the camera, and picks the Easy or Hard variant from the strat.
-* The "Your Loadout" button is clicked, checked and retried, and the loadout step runs once more if Ready is not found before the macro reloads.
-* The cutscene skip is held, checked and held again (up to 3 times) if the button is still on screen.
-* At the end of a run the macro skips the cutscene, clicks Return To Lobby and starts the next run.
-* Night support is adapted from the 1.3.4a build.
+### Discord Integration
+- Webhook logging with screenshots and currency statistics (screenshots capture the primary monitor only).
+- Optional bot mode with `!start`, `!stop`, `!status` and `!screenshot` commands.
+- Optional @mention on win, on loss, and when Timescale tickets run out.
 
-**Reliability**
-* The Ready button is clicked at the centre of the detected green button instead of at its edge.
-* Restart button detection checks both button images and uses the better match.
-* Tower placement and cloning retry with logging, and a few camera-input timings were adjusted.
+### Reliability and Logging
+- Ready button is clicked at the centre of the detected button.
+- Restart detection compares both button images and uses the better match.
+- Tower placement and cloning retry automatically and log each attempt.
+- **Audit log** – Errors, retries and recoveries are saved to `Logs\audit_log.tsv`. Open it from **Tools → Open Audit Log**.
+- **Settings auto-save** – Checkboxes, hotkeys and inputs on the Settings and Discord tabs save in the background. Legacy Mode is applied only through **Save all settings**, since it reloads the macro.
 
-**Logging and webhook**
-* **Audit log:** Tools tab, **Open Audit Log**. Errors, retries and recoveries are saved to `Logs\audit_log.tsv` so you can review them after a run.
-* Webhook screenshots capture only your primary monitor, not every screen.
+---
 
-## Strategy file format
+## Requirements
+
+| Area | Requirement |
+|---|---|
+| Operating system | Windows 10 or 11 |
+| Runtime | [AutoHotkey v2.0](https://www.autohotkey.com/) (v1.1 is not supported). A 64-bit executable is also included in `submacros`. |
+| Resolution | 1920x1080 recommended |
+| Display scaling | 100% |
+| Language pack | English (US), required for OCR |
+| Taskbar | Must be visible (auto-hide disabled) |
+
+**Roblox and TDS settings**
+
+- UI Scale: **Large**
+- Screen Shake: **Disabled**
+- Prefer Vertical Upgrades: **Enabled**
+- No custom fonts
+- Roblox in **windowed mode** (not fullscreen)
+- Roblox on your **primary monitor**, so webhook screenshots capture the game
+
+---
+
+## Installation
+
+1. Download the `.zip` and extract **all files** to a folder. Do not run the macro from inside the archive.
+2. Install AutoHotkey v2.0.
+3. Run `Main.ahk`.
+
+---
+
+## Strategy File Format
+
+Strategies are `.strat` files made of an `[Info]` section and a `[Settings]` section.
 
 ```ini
 [Info]
@@ -65,58 +98,49 @@ difficulty=Molten
 requiredTowers=Demoman, DJ, Hacker, Shotgunner, Juggernaut
 ```
 
-Every `[Info]` key is optional; leave a value empty (or leave the key out) when you do not know it yet.
+### `[Info]` keys
 
-* `coins=`, `gems=`: an amount, a tier (`small`, `medium`, `large`, `largest`) or both, in any order: `1425, large`, `large, 1425`, `1425`, `large`, `0`. The amount is printed under the icon, and the tier picks the icon. With only an amount, the icon tier is chosen from it (see `RewardTiers` in `Main.ahk`).
-* `exp=`: unit EXP, a number only.
-* `time=`: free text, shown on the card.
+All keys are optional. Leave a value empty or omit the key if it is unknown; the strategy still loads normally.
 
-Library icons are loaded from `Resources\Images`:
+| Key | Description |
+|---|---|
+| `title`, `author`, `desc` | Descriptive text shown on the card. |
+| `coins`, `gems` | An amount, a tier (`small`, `medium`, `large`, `largest`), or both in any order (e.g. `1425, large`). The amount is displayed under the icon and the tier selects the icon. With only an amount, the tier is chosen automatically (see `RewardTiers` in `Main.ahk`). |
+| `exp` | Unit EXP, as a number. |
+| `time` | Free text shown on the card. |
 
-* Difficulty icon: `<difficulty>.png` (for example `Molten.png`, `Night4.png`).
-* Reward icons: `coins_<size>.png` and `gems_<size>.png`. Unit EXP always uses `exp.png`.
-* Greyed-out icons: `coins_none.png` and `gems_none.png`.
+Missing values appear greyed out with a `-`; an explicit `0` appears greyed out as `0`.
 
-## Requirements
+### `[Settings]` keys
 
-* **Windows** 10/11
-* **AutoHotkey v2.0** from [autohotkey.com](https://www.autohotkey.com/) (v1.1 will not work). A copy of the 64-bit executable is also in `submacros`.
-* **Windows settings:**
-  * Recommended resolution: **1920x1080**
-  * Display scaling: **100%**
-  * The **English (US)** language pack must be installed for text recognition (OCR).
-  * The **taskbar must be visible** (do not set it to auto-hide).
-* **Roblox & TDS settings:**
-  * UI Scale: **Large**
-  * Screen Shake: **Disabled**
-  * Prefer Vertical Upgrades: **Enabled**
-  * No custom fonts
-  * Roblox must be in **windowed mode**, not fullscreen.
-* Run Roblox on your **primary monitor** so webhook screenshots show the game.
+| Key | Description |
+|---|---|
+| `map` | Map to play. |
+| `difficulty` | Difficulty name. Use `Night3` or `Night4` for Night events (`N4` is still accepted). The Easy or Hard variant is selected from the strategy. |
+| `requiredTowers` | Comma-separated towers to equip before joining. |
 
-## Installation
+### Library icons
 
-1. Download the `.zip` and extract **all files** to a folder (don't run it from inside the zip).
-2. Install AutoHotkey v2.0.
-3. Run `Main.ahk`.
+Icons are loaded from `Resources\Images`:
 
-## Notes
+- Difficulty: `<difficulty>.png` (e.g. `Molten.png`, `Night4.png`)
+- Rewards: `coins_<size>.png` and `gems_<size>.png`; unit EXP always uses `exp.png`
+- Empty state: `coins_none.png` and `gems_none.png`
 
-* Your webhook URL and bot token are saved in plain text under `%AppData%\Unlimited_Macro`. Don't share that folder.
-* In Discord bot mode, anyone who can post in the configured channel can use `!start`, `!stop`, `!status` and `!screenshot`. Keep that channel private.
-* Automating input in Roblox may be against the rules of the game. Use it at your own risk.
+---
+
+## Data and Security
+
+- User data (settings, recordings, logs) is stored in `%AppData%\Unlimited_Macro`.
+- Webhook URLs and bot tokens are saved in plain text in that folder. Do not share it.
+- In Discord bot mode, anyone who can post in the configured channel can run bot commands. Keep that channel private.
+
+---
+
+## Disclaimer
+
+Automating input in Roblox may violate the game's rules. Use at your own risk.
 
 ## License
 
-GPL-3.0. See `LICENSE`.
-
-
-## Merged from the IlMlN edition
-
-Ported on top of this fork without removing anything that was already here:
-
-- **Reward detection** - end-of-match Coins / Gems / EXP are now read with a multi-step pipeline: Roblox memory read (`lib/RobloxMemory.ahk`, read-only, uses `Resources/client_layout.txt`), adaptive OCR, and 3 retries, cross-checked against each other. A comprehensive log is written to `%AppData%\Unlimited_Macro\Logs\reward_debug.log`. Screenshots still capture the primary monitor only.
-- **Settings auto-save** - checkboxes, hotkeys and inputs on the Settings and Discord tabs save silently in the background. The "Save" buttons still work and still show a confirmation. Legacy Mode is still applied only with "Save all settings" because it reloads the macro. The Upgrade Delay box is now actually read back when saving.
-- **Timescale on the Main tab** - the dropdown moved next to "Auto Equip Towers".
-- **Strategy Modifiers editor** - "Strategy Modifiers" button on the Main tab (next to the library buttons). Tick Glass / Hidden / Exploding / ... and it writes the `modifiers=` line of the strategy in the "Strategy:" box. A one-time `.bak` copy of the strategy is made before the first edit.
-- **Discord** - optional @mention on Win, on Loss and when Timescale tickets run out (User ID + checkboxes on the Discord tab). When tickets run out the macro also stops trying to use timescale for the rest of the run.
+Released under the GPL-3.0 license. See `LICENSE`. Based on *Ultimate Macro* by Darksen.
