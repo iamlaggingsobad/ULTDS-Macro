@@ -37,6 +37,7 @@ if (A_PtrSize == 4) {
 #Include lib\MapDatabase.ahk
 #Include lib\TowerDatabase.ahk
 #Include lib\ModifierDatabase.ahk
+#Include lib\RewardDatabase.ahk
 
 command_buffer := []
 
@@ -896,6 +897,7 @@ Loop Files, stratSrc[1] "\*.strat" {
     gemsR := ParseReward("gems", IniRead(localPath, "Info", "gems", ""))
     expR := ParseReward("exp", IniRead(localPath, "Info", "exp", ""))
     sModifiers := IniRead(localPath, "Settings", "modifiers", "")
+    sResult := RewardResult(IniRead(localPath, "Info", "result", ""))      ; "win" (default) or "lose"
     
     LoadedStrats.Push({
         fileName: A_LoopFileName,
@@ -910,6 +912,7 @@ Loop Files, stratSrc[1] "\*.strat" {
         gems: gemsR,
         exp: expR,
         modifiers: sModifiers,
+        result: sResult,
         path: localPath,
         user: stratSrc[2],
         stem: RegExReplace(A_LoopFileName, "i)\.strat$", "")
@@ -929,6 +932,7 @@ global StratInfoTipShown := ""    ; unit name currently shown as a tooltip
 global StratInfoTipSince := 0, StratInfoTipLast := ""
 global StratInfoW := 460
 global StratInfoPath := "", StratInfoEdit := false     ; strat file shown in the Info window, and whether modifiers are being edited
+global StratInfoSpecial := false, StratInfoResult := "win"   ; the strat is a special game mode (no modifiers allowed) / a win or lose strat
 global StratInfoMods := Map(), StratInfoModsOrig := Map(), StratInfoExtras := []   ; working / saved modifier codes, unknown tokens kept as written
 global StratInfoModTiles := []                          ; the 12 modifier squares: {x, y, w, h, code, plate, icon, bmpOn, bmpOff}
 global StratInfoHead := 0, StratInfoEditPic := 0, StratInfoSavePic := 0
@@ -974,7 +978,10 @@ for index, strat in LoadedStrats {
     ;   |  [v]  Molten Normal  1425     0     120                       (clock) ~14m 20s
     ;   |  [edit] [trash]
     ; Each icon plate has its value written underneath, in the colour of that icon:
-    ;   mode = the game mode colour, coins = gold, gems = magenta, unit exp = cyan, nothing/zero = grey,
+    ;   mode = the game mode colour, coins = gold, gems = magenta, unit exp = cyan, nothing/zero = grey.
+    ;   Coins / gems / exp come from ComputeRewards (lib\RewardDatabase.ahk): a win is calculated from the mode, map
+    ;   and modifiers, a loss shows the typed values. When map scaling or modifiers change a number, the original is
+    ;   shown small and grey with a red streak and the new number sits under it.
     ;   map = the map's picture (Resources\Images\MapIcons) with its difficulty rating underneath.
     ; The up / down arrows move the card in the list (the order is saved).
     ; Special modes (Badlands II, Pizza Party, Polluted Wasteland II) come with their own map, so the strat's
@@ -1024,18 +1031,22 @@ for index, strat in LoadedStrats {
     diffImg := "Resources/Images/" modeName ".png"
     modeLblSize := StrLen(modeLabel) <= 8 ? 10 : (StrLen(modeLabel) <= 10 ? 9 : 8)
     mapLblSize := StrLen(mapLabel) <= 8 ? 10 : 9
+    cardRw := ComputeRewards(strat)       ; {coins, gems, exp, ...}, see lib\RewardDatabase.ahk
     plates := [
         ["plate_diff",  54,  diffImg,                                       modeLabel,        modeHex,                                       modeLblSize, 76],
         ["plate_map",   118, mapImg,                                        mapLabel,         mapTextHex,                                    mapLblSize,  64],
-        ["plate_coins", 182, StratRewardIcon("coins", strat.coins.size),   strat.coins.text, strat.coins.active ? "F9B519" : noneHex,       10,          64],
-        ["plate_gems",  246, StratRewardIcon("gems", strat.gems.size),     strat.gems.text,  strat.gems.active ? "E975F5" : noneHex,        10,          64],
-        ["plate_exp",   310, "Resources/Images/exp.png",                   strat.exp.text,   strat.exp.active ? "4FDDF9" : noneHex,         10,          64]
+        ["plate_coins", 182, StratRewardIcon("coins", cardRw.coins.size),      cardRw.coins.text,    cardRw.coins.active ? "F9B519" : noneHex,          10,          64],
+        ["plate_gems",  246, StratRewardIcon("gems", cardRw.gems.size),        cardRw.gems.text,     cardRw.gems.active ? "E975F5" : noneHex,           10,          64],
+        ["plate_exp",   310, "Resources/Images/exp.png",                   cardRw.exp.text,      cardRw.exp.active ? "4FDDF9" : noneHex,            10,          64]
     ]
+    rewardKinds := Map("plate_coins", "coins", "plate_gems", "gems", "plate_exp", "exp")
+    rewardCtrls := Map()      ; kind -> the labels StratLib_ApplyRewards switches between
     for plate in plates {
         px := C1X + plate[2], py := C1Y + 42
+        iconCtrl := ""
         ChildGui.Add("Picture", "x" (px - 6) " y" (py - 6) " w68 h68 +BackgroundTrans", "HBITMAP:*" hPlateBg)
         if (plate[3] != "" && FileExist(plate[3])) {
-            ChildGui.Add("Picture", "x" (px + 4) " y" (py + 4) " w48 h48 +BackgroundTrans", plate[3])
+            iconCtrl := ChildGui.Add("Picture", "x" (px + 4) " y" (py + 4) " w48 h48 +BackgroundTrans", plate[3])
         } else if (plate[1] = "plate_map") {
             ; no icon file for this map yet: the plate shows the map's initials instead
             ChildGui.SetFont("s13 Bold c" mapTextHex, "Segoe UI")
@@ -1046,19 +1057,34 @@ for index, strat in LoadedStrats {
 
         ; value label under the plate, centred on it
         ChildGui.SetFont("s" plate[6] " Bold c" plate[5], "Segoe UI")
-        ChildGui.Add("Text", "x" (px + 28 - plate[7] // 2) " y" (py + 60) " w" plate[7] " h18 +0x200 +0x4000 Center +BackgroundTrans", plate[4])
+        lblMain := ChildGui.Add("Text", "x" (px + 28 - plate[7] // 2) " y" (py + 60) " w" plate[7] " h18 +0x200 +0x4000 Center +BackgroundTrans", plate[4])
+
+        ; Coins / gems / exp also get three hidden labels for strats whose modifiers raise the rewards:
+        ; the original number (small, grey, with a red streak through it) and the boosted number under it
+        ; in the icon's colour. StratLib_ApplyRewards decides which set is visible.
+        if (rewardKinds.Has(plate[1])) {
+            lx := px + 28 - plate[7] // 2
+            ChildGui.SetFont("s8 w500 c6A717C", "Segoe UI")
+            lblOld := ChildGui.Add("Text", "x" lx " y" (py + 57) " w" plate[7] " h13 +0x200 +0x4000 Center +BackgroundTrans Hidden", "")
+            picStrike := ChildGui.Add("Picture", "x" lx " y" (py + 57) " w" plate[7] " h13 +BackgroundTrans Hidden", "")
+            ChildGui.SetFont("s" plate[6] " Bold c" plate[5], "Segoe UI")
+            lblBoost := ChildGui.Add("Text", "x" lx " y" (py + 70) " w" plate[7] " h18 +0x200 +0x4000 Center +BackgroundTrans Hidden", "")
+            rewardCtrls[rewardKinds[plate[1]]] := {main: lblMain, old: lblOld, strike: picStrike, boosted: lblBoost, w: plate[7], hbm: 0, icon: iconCtrl, iconPath: plate[3], tip: ""}
+        }
 
         ; hover area over the plate: Hoverwatchdog shows this text as a tooltip while the mouse rests on it
         switch plate[1] {
             case "plate_diff":  plateTip := specialName != "" ? specialName : modeName
             case "plate_map":   plateTip := mapName != "" ? mapName : "Unknown map"
-            case "plate_coins": plateTip := (strat.coins.size = "" ? "No" : StrUpper(SubStr(strat.coins.size, 1, 1)) SubStr(strat.coins.size, 2)) " coins"
-            case "plate_gems":  plateTip := (strat.gems.size = "" ? "No" : StrUpper(SubStr(strat.gems.size, 1, 1)) SubStr(strat.gems.size, 2)) " gems"
-            default:            plateTip := "Tower EXP"
+            case "plate_coins": plateTip := RewardTipText("coins", cardRw.coins, cardRw)
+            case "plate_gems":  plateTip := RewardTipText("gems", cardRw.gems, cardRw)
+            default:            plateTip := RewardTipText("exp", cardRw.exp, cardRw)
         }
         tipCtrl := ChildGui.Add("Text", "x" px " y" py " w56 h56 +BackgroundTrans", "")
         tipCtrl.Tip := plateTip
         StratTips.Push(tipCtrl)
+        if (rewardKinds.Has(plate[1]))
+            rewardCtrls[rewardKinds[plate[1]]].tip := tipCtrl
     }
 
     ; Button column at the left of the card: four 24 x 24 squares, 6px apart, spanning the divider line
@@ -1066,6 +1092,7 @@ for index, strat in LoadedStrats {
     arrowN := ["0xff3a404c", "0xff1d2026"], arrowH := ["0xff4d5564", "0xff292d35"]
     cardRec := {strat: strat, ctrls: [], up: "", down: ""}
     cardRec.title := titleCtrl      ; the title text, so StratLib_UpdateCard can change it live
+    cardRec.rewards := rewardCtrls  ; coins / gems / exp labels, so StratLib_ApplyRewards can change them live
     for dirName in ["Up", "Down"] {
         glyph := dirName = "Up" ? Chr(0x25B2) : Chr(0x25BC)
         ay := C1Y + 10 + (dirName = "Up" ? 0 : 30)
@@ -1180,6 +1207,7 @@ for index, strat in LoadedStrats {
         }
     }
     StratCards.Push(cardRec)
+    StratLib_ApplyRewards(cardRec)
 }
 
 if (LoadedStrats.Length == 0) {
@@ -1266,6 +1294,7 @@ global RecDiffCtrl := MainGui.Add("DropDownList", "x380 y142 w220 Hidden vRecDif
     "Easy", "Casual", "Intermediate", "Molten", "Fallen", "Frost", 
     "Hardcore", "Voidcore", "Pizza Party", "Badlands II", "Polluted Wasteland II"
 ])
+RecDiffCtrl.OnEvent("Change", RecDiff_Changed)
 
 MainGui.SetFont("s9 w400 cAAAAAA")
 global Tab2_Lbl3 := MainGui.Add("Text", "x30 y235 w80 h20 Hidden", "Modifiers:")
@@ -2139,20 +2168,10 @@ NormalizeRewardSize(value) {
     return (v != "" && InStr("|small|medium|large|largest|", "|" v "|")) ? v : ""
 }
 
-; Icon tiers, smallest to largest, as [name, minimum amount]. They are ONLY used to pick which icon to draw when
-; a strat gives an amount but no tier name (for example "coins=1425"). The number printed under an icon is
-; never taken from here: it always comes from the strat file.
-RewardTiers(kind) {
-    static tiers := Map(
-        ; coins: small up to 450, medium 451-1000, large 1001+ (no "largest" from an amount)
-        ; gems:  small up to 45, medium 46-150, large 151-400, largest 401+
-        "coins", [["small", 0], ["medium", 451], ["large", 1001]],
-        "gems",  [["small", 0], ["medium", 46], ["large", 151], ["largest", 401]]
-    )
-    return tiers.Has(kind) ? tiers[kind] : []
-}
-
 ; Reads one reward line (coins= / gems= / exp=) from a strat's [Info] section.
+; These typed rewards are only used by LOSE strategies (result=lose) and by modes without a reward table (Night
+; events). On a WIN strategy the rewards are calculated from the game mode, the map and the modifiers
+; (ComputeRewards in lib\RewardDatabase.ahk) and anything typed here is ignored.
 ; Accepted forms, in any order and any case:
 ;   coins=1425, large      coins=large, 1425      coins=1425      coins=large      coins=0      coins=   (or missing)
 ; "1,425" counts as one number. Unknown words are ignored, so a bad line can never break the library.
@@ -2396,7 +2415,61 @@ StratLib_Move(path, dir, *) {
     IniWrite(order, StateFile, "Library", "Order")
 }
 
-; Shows a strat's edited title / author / description on its library card straight away (no Refresh needed).
+; Tooltip of a reward plate, e.g. "Large coins" or, when map scaling / modifiers changed it, "Large coins - map 125%, modifiers +10%".
+RewardTipText(kind, v, rw) {
+    text := (kind = "exp") ? "Tower EXP" : ((v.size = "" ? "No" : StrUpper(SubStr(v.size, 1, 1)) SubStr(v.size, 2)) " " kind)
+    if (v.changed) {
+        parts := ""
+        if (rw.scalePct != 100)
+            parts := "map " rw.scalePct "%"
+        if (rw.bonus > 0)
+            parts .= (parts != "" ? ", " : "") "modifiers +" rw.bonus "%"
+        if (parts != "")
+            text .= " - " parts
+    }
+    return text
+}
+
+; Shows a strat's rewards on its library card (coins / gems / exp numbers, the coin / gem icon size and the tooltips).
+;   Wins are calculated by ComputeRewards from the game mode, map and modifiers; the coins / gems / exp typed in the
+;   strat file are never changed. When the calculated number differs from the game mode's set reward, the set reward
+;   is shown small and grey with a red streak through it and the new number sits under it in the normal colour.
+;   Rewards with an unknown amount ("?") or 0 are shown as they are.
+StratLib_ApplyRewards(rec) {
+    rw := ComputeRewards(rec.strat)
+    for kind, r in rec.rewards {
+        v := rw.%kind%
+        both := (v.changed && v.orig != "" && v.orig > 0)
+        r.main.Value := v.text
+        r.main.Visible := !both
+        r.old.Visible := both
+        r.strike.Visible := both
+        r.boosted.Visible := both
+
+        ; a bigger or smaller amount can need a different icon size
+        if (kind != "exp" && IsObject(r.icon)) {
+            path := StratRewardIcon(kind, v.size)
+            if (path != "" && path != r.iconPath) {
+                r.icon.Value := "*w48 *h48 " path
+                r.iconPath := path
+            }
+        }
+        if (IsObject(r.tip))
+            r.tip.Tip := RewardTipText(kind, v, rw)
+
+        if (!both)
+            continue
+        r.old.Value := v.orig
+        r.boosted.Value := v.amount
+        hbm := CreateStreakBitmap(r.w, 13, StrLen(v.orig) * 6 + 6)
+        r.strike.Value := "HBITMAP:*" hbm
+        if (r.hbm)
+            DllCall("DeleteObject", "Ptr", r.hbm)
+        r.hbm := hbm
+    }
+}
+
+; Shows a strat's edited title / author / description (and the rewards its new modifiers give) on its library card straight away (no Refresh needed).
 StratLib_UpdateCard(path, title, author, desc) {
     global StratCards, ChildGui
     for rec in StratCards {
@@ -2406,6 +2479,8 @@ StratLib_UpdateCard(path, title, author, desc) {
         rec.strat.author := author
         rec.strat.desc := desc
         rec.title.Value := title != "" ? title : (rec.strat.stem != "" ? rec.strat.stem : "Unknown Strat")
+        rec.strat.modifiers := IniRead(path, "Settings", "modifiers", "")
+        StratLib_ApplyRewards(rec)
         break
     }
     DllCall("RedrawWindow", "Ptr", ChildGui.Hwnd, "Ptr", 0, "Ptr", 0, "UInt", 0x185)
@@ -2869,7 +2944,7 @@ StartRecording(ctrl, *) {
     gamemap := v.RecMaps
     difficulty := v.RecDifficulty
     requiredTowers := v.RecRequiredTowers
-    modifiers := v.RecModifiers
+    modifiers := (SpecialModeName(v.RecDifficulty) != "") ? "" : v.RecModifiers      ; special modes: no modifiers
     autoChain := v.RecAutoChain ? "ON" : "OFF"
     autoCaravan := v.RecAutoCaravan ? "ON" : "OFF"
     autoDropTheBeat := v.RecAutoDropTheBeat ? "ON" : "OFF"
@@ -2888,6 +2963,17 @@ StartRecording(ctrl, *) {
     LogToConsole("Recording started.")
     
     ActivateRoblox()
+}
+
+; Failsafe: special game modes (Pizza Party, Badlands II, Polluted Wasteland II) have fixed rewards and cannot use
+; modifiers, so picking one clears and locks the modifier list.
+RecDiff_Changed(*) {
+    global RecDiffCtrl, RecModifiersCtrl, Tab2_Info2
+    special := SpecialModeName(RecDiffCtrl.Text) != ""
+    if (special)
+        RecModifiersCtrl.Choose(0)
+    RecModifiersCtrl.Enabled := !special
+    Tab2_Info2.Value := special ? "Special game modes have fixed rewards: modifiers are not allowed." : "Hold CTRL to deselect/select multiple modifiers."
 }
 
 StopRecord(ctrl, *) {
@@ -2956,7 +3042,10 @@ StopRecord(ctrl, *) {
             FileDelete(filePath)
         getRobloxPos(&pX, &pY, &currentWidth, &currentHeight)
 
-        FileAppend("[Settings]`nmap=" gamemap "`ndifficulty=" difficulty "`nrequiredTowers=" requiredTowers
+        ; win or lose: a win strategy gets its rewards calculated, a lose strategy keeps the ones you type in
+        resultWin := (ModernMsgBox("Win or lose?", "Does this strategy WIN the match?`n`nYES = win (the rewards are calculated for you)`nNO = lose (you type the rewards into the strat file)", "YES|NO") = "YES")
+
+        FileAppend("[Info]`nresult=" (resultWin ? "win" : "lose") "`n`n[Settings]`nmap=" gamemap "`ndifficulty=" difficulty "`nrequiredTowers=" requiredTowers
             . "`nmodifiers=" Join(modifiers)
             . "`nautoChain=" autoChain "`nautoCaravan=" autoCaravan "`nautoDropTheBeat=" autoDropTheBeat
             . "`nautoSkip=" AutoSkip "`nabilitySpam=" AbilitySpam "`nmoveEnabled=" MoveEnabled "`nmoveDirection=" MoveDirection
@@ -9112,6 +9201,27 @@ CreateGradientButton(w, h, r, colorStart, colorEnd, shadowColor, strokeColor, bt
     return hbm
 }
 
+; A w x h transparent bitmap with a single red, slightly slanted line about tw pixels wide, centred. It is laid
+; over the original reward number to show that it has been replaced by the boosted one.
+CreateStreakBitmap(w, h, tw) {
+    hdc := GetDC(0)
+    hbm := CreateDIBSection(w, h)
+    hdcMem := CreateCompatibleDC()
+    obm := SelectObject(hdcMem, hbm)
+    G := Gdip_GraphicsFromHDC(hdcMem)
+    Gdip_SetSmoothingMode(G, 4)
+    x1 := Max(0, (w - tw) / 2)
+    x2 := Min(w, x1 + tw)
+    pPen := Gdip_CreatePen(0xFFE5484D, 2)
+    Gdip_DrawLine(G, pPen, x1, h - 3, x2, 3)
+    Gdip_DeletePen(pPen)
+    SelectObject(hdcMem, obm)
+    DeleteDC(hdcMem)
+    ReleaseDC(0, hdc)
+    Gdip_DeleteGraphics(G)
+    return hbm
+}
+
 ; Draws a rounded badge with centred white text and adds it to `gui` as a Picture.
 ; (x, y, w, h) is the VISIBLE badge. CreateGradientButton keeps a 6px shadow margin on every side,
 ; so the bitmap is made 12px larger and placed 6px up/left of the badge.
@@ -9268,6 +9378,7 @@ Gdip_CreateRoundRectanglePath(x, y, w, h, r) {
 
 ; Opens the Info window for a strat, reading its current values from the file.
 StratLib_ShowInfo(path, stem := "") {
+    global StratInfoSpecial, StratInfoResult
     if !FileExist(path) {
         StratInfo("Strategy not found", "", "", "", "This strategy file no longer exists. Press Refresh to update the library.", "E5484D")
         return
@@ -9279,6 +9390,8 @@ StratLib_ShowInfo(path, stem := "") {
     desc := IniRead(path, "Info", "desc", "")
     mode := IniRead(path, "Settings", "difficulty", "")
     accent := mode != "" ? ModeColorHex(SpecialModeName(mode) != "" ? SpecialModeName(mode) : mode) : "3A86FF"
+    StratInfoSpecial := (mode != "" && SpecialModeName(mode) != "")
+    StratInfoResult := RewardResult(IniRead(path, "Info", "result", ""))
     StratInfo(title != "" ? title : stem, author != "" ? author : "Unknown", towers, mods, desc, accent, path)
 }
 
@@ -9307,6 +9420,7 @@ StratInfo_Close(*) {
 ; always respond, whichever control is under the cursor. Click the X (top right) to close; drag the top bar to move.
 StratInfo_Click(wParam, lParam, msg, hwnd) {
     global StratInfoGui, StratInfoW, StratInfoPath, StratInfoEdit, StratInfoMods, StratInfoModTiles, StratInfoEditRect, StratInfoSaveRect
+    global StratInfoFooter, StratInfoSpecial
     if (!StratInfoGui)
         return
     try {
@@ -9345,6 +9459,12 @@ StratInfo_Click(wParam, lParam, msg, hwnd) {
     ; while editing, a click on a modifier square turns it on or off
     for tile in StratInfoModTiles {
         if (StratInfo_Hit([tile.x, tile.y, tile.w, tile.h], x, y)) {
+            if (StratInfoSpecial) {
+                ; failsafe: special game modes have fixed rewards and cannot use modifiers
+                StratInfoFooter.Text := "Special game modes have fixed rewards, so modifiers can't be added."
+                StratInfo_Redraw()
+                return 1
+            }
             if (StratInfoMods.Has(tile.code))
                 StratInfoMods.Delete(tile.code)
             else
@@ -9381,7 +9501,7 @@ StratInfo_SetEdit(on) {
     global StratInfoGui, StratInfoW, StratInfoEdit, StratInfoMods, StratInfoModsOrig, StratInfoModTiles, StratInfoHead
     global StratInfoEditPic, StratInfoEditBmps, StratInfoOrig, StratInfoFooter
     global StratInfoTitleTxt, StratInfoAuthorTxt, StratInfoByLbl, StratInfoTitleEdit, StratInfoAuthorEdit, StratInfoDescEdit
-    global StratInfoTitleFrame, StratInfoAuthorFrame
+    global StratInfoTitleFrame, StratInfoAuthorFrame, StratInfoSpecial
     if (!StratInfoGui)
         return
     StratInfoEdit := on
@@ -9393,7 +9513,7 @@ StratInfo_SetEdit(on) {
         StratInfoAuthorEdit.Value := StratInfoOrig["author"]
         StratInfoDescEdit.Value := StratInfoOrig["desc"]
     }
-    StratInfoHead.Text := on ? "MODIFIERS  -  CLICK TO TOGGLE" : "MODIFIERS"
+    StratInfoHead.Text := on ? (StratInfoSpecial ? "MODIFIERS  -  NOT IN SPECIAL MODES" : "MODIFIERS  -  CLICK TO TOGGLE") : "MODIFIERS"
     StratInfo_UpdateBonus()
     StratInfoFooter.Text := StratInfo_Note()
     StratInfoEditPic.Value := "HBITMAP:*" StratInfoEditBmps[on ? 2 : 1]
@@ -9573,9 +9693,17 @@ StratInfo_Wheel(wp, lp, msg, hwnd) {
 StratInfo_SaveAll() {
     global StratInfoPath, StratInfoMods, StratInfoModsOrig, StratInfoExtras, StratInfoOrig, StratInfoFooter, StratInfoW
     global StratInfoTitleEdit, StratInfoAuthorEdit, StratInfoDescEdit, StratInfoTitleTxt, StratInfoAuthorTxt
-    global StratInfoDescTxt, StratInfoDescH, StratInfoHasDesc, StratInfoTitleH
+    global StratInfoDescTxt, StratInfoDescH, StratInfoHasDesc, StratInfoTitleH, StratInfoModTiles, StratInfoSpecial
     path := StratInfoPath
     innerW := StratInfoW - 44
+
+    ; failsafe: special game modes cannot have modifiers, so any that are in the file are removed
+    if (StratInfoSpecial) {
+        StratInfoMods := Map()
+        StratInfoExtras := []
+        for tile in StratInfoModTiles
+            StratInfo_SetTile(tile, false)
+    }
 
     parts := []
     for m in ModifierList() {
@@ -9636,10 +9764,21 @@ StratInfo_WriteKey(path, key, val) {
 }
 
 ; "REWARDS +NN%": the sum of the reward bonuses of the active modifiers (they all stack). Green when above 0.
+; Special game modes have fixed rewards, and modifiers only give a bonus on wins, so those show a grey note instead.
 StratInfo_UpdateBonus() {
-    global StratInfoMods, StratInfoBonusTxt
+    global StratInfoMods, StratInfoBonusTxt, StratInfoSpecial, StratInfoResult
     if (!IsObject(StratInfoBonusTxt))
         return
+    if (StratInfoSpecial) {
+        StratInfoBonusTxt.SetFont("c6F7785")
+        StratInfoBonusTxt.Value := "REWARDS  FIXED"
+        return
+    }
+    if (StratInfoResult = "lose") {
+        StratInfoBonusTxt.SetFont("c6F7785")
+        StratInfoBonusTxt.Value := "REWARDS  NO BONUS"
+        return
+    }
     total := 0
     for code, on in StratInfoMods
         total += ModifierBonus(code)
@@ -10262,6 +10401,22 @@ GetDiscordMention(rawId) {
     if (cleanId = "" || !RegExMatch(cleanId, "^\d+$"))
         return ""
     return "<@" cleanId ">"
+}
+
+; Total reward bonus (in %) of a strat's modifiers= line, e.g. "Hid, Fog" -> 30. Same rule as the Info window's
+; "REWARDS +NN%": every known modifier counts once, and anything unknown adds nothing.
+ModifierBonusTotal(raw) {
+    seen := Map(), total := 0
+    for tok in StrSplit(RegExReplace(raw, "[;|]", ","), ",", " `t") {
+        if (tok = "" || StrLower(tok) = "none")
+            continue
+        code := NormalizeModifierToken(tok)
+        if (!seen.Has(code)) {
+            seen[code] := true
+            total += ModifierBonus(code)
+        }
+    }
+    return total
 }
 
 ; ===================== Modifier helpers (used by the Strategy Info window) =====================
