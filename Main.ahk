@@ -933,7 +933,18 @@ global StratInfoMods := Map(), StratInfoModsOrig := Map(), StratInfoExtras := []
 global StratInfoModTiles := []                          ; the 12 modifier squares: {x, y, w, h, code, plate, icon, bmpOn, bmpOff}
 global StratInfoHead := 0, StratInfoEditPic := 0, StratInfoSavePic := 0
 global StratInfoEditBmps := [0, 0], StratInfoEditRect := [0, 0, 0, 0], StratInfoSaveRect := [0, 0, 0, 0]
-global StratInfoLower := [], StratInfoBaseH := 0       ; controls below the modifiers (moved down while editing), window height
+global StratInfoLower := [], StratInfoBaseH := 0       ; (kept for compatibility) window height
+global StratInfoTitleTxt := 0, StratInfoAuthorTxt := 0, StratInfoByLbl := 0, StratInfoTitleH := 0   ; title / author as shown normally
+global StratInfoTitleEdit := 0, StratInfoAuthorEdit := 0, StratInfoDescEdit := 0                       ; edit boxes shown in edit mode
+global StratInfoTitleFrame := 0, StratInfoAuthorFrame := 0, StratInfoDescFrame := 0                    ; 1px frames behind the edit boxes
+global StratInfoDescHead := 0, StratInfoDescTxt := 0, StratInfoDescH := 0, StratInfoHasDesc := false
+global StratInfoLowerY := 0, StratInfoFooter := 0
+global StratInfoBonusTxt := 0          ; "REWARDS +NN%" counter at the right end of the MODIFIERS heading
+; long descriptions scroll inside a read-only viewport (same look as the library's scroll bar) instead of growing the window
+global StratInfoDescVis := 6                     ; lines shown before the scroll bar appears
+global StratInfoDescView := 0, StratInfoDescTrack := 0, StratInfoDescThumb := 0
+global StratInfoDescScroll := false, StratInfoDescLineH := 16, StratInfoDescTotal := 0, StratInfoDescThumbH := 30, StratInfoDescViewY := 0
+global StratInfoOrig := Map("title", "", "author", "", "desc", "")   ; title / author / description as saved in the file
 global StratInfoBitmaps := []   ; tile bitmaps of the open Info window, freed when it closes
 global StratTips := []      ; invisible hover areas over the icon plates (each has a .Tip text), see Hoverwatchdog
 StratSeenHwnds := Map()
@@ -1004,7 +1015,7 @@ for index, strat in LoadedStrats {
 
     ; title, left aligned above the icon row (falls back to the file name when the strat has no title)
     ChildGui.SetFont("s11 Bold cWhite", "Segoe UI")
-    ChildGui.Add("Text", "x" (C1X + 54) " y" (C1Y + 12) " w320 h24 +0x200 +0x4000 +BackgroundTrans", strat.title != "" ? strat.title : (strat.stem != "" ? strat.stem : "Unknown Strat"))
+    titleCtrl := ChildGui.Add("Text", "x" (C1X + 54) " y" (C1Y + 12) " w320 h24 +0x200 +0x4000 +BackgroundTrans", strat.title != "" ? strat.title : (strat.stem != "" ? strat.stem : "Unknown Strat"))
 
     ; Five 56x56 icon plates, 8px apart. The plate bitmap carries a 6px shadow margin, so it is
     ; drawn 12px larger and placed 6px up/left of the visible plate.
@@ -1054,6 +1065,7 @@ for index, strat in LoadedStrats {
     ; (y 10..124): up, down, edit, remove. On the first card the up arrow is dimmed, on the last card the down arrow is dimmed.
     arrowN := ["0xff3a404c", "0xff1d2026"], arrowH := ["0xff4d5564", "0xff292d35"]
     cardRec := {strat: strat, ctrls: [], up: "", down: ""}
+    cardRec.title := titleCtrl      ; the title text, so StratLib_UpdateCard can change it live
     for dirName in ["Up", "Down"] {
         glyph := dirName = "Up" ? Chr(0x25B2) : Chr(0x25BC)
         ay := C1Y + 10 + (dirName = "Up" ? 0 : 30)
@@ -1151,7 +1163,7 @@ for index, strat in LoadedStrats {
         rmHover := CreateGradientButton(36, 36, 6, "0xFFD24A5C", "0xFF8A2A37", "0x60000000", "0x5dffffff", Chr(0xE74D), "Segoe MDL2 Assets", 10, 1)
         picRm := ChildGui.Add("Picture", "x" (C1X + 4) " y" (C1Y + 100 - 6) " w36 h36 +BackgroundTrans", "HBITMAP:*" rmNormal)
         rm1 := ChildGui.Add("Text", "x" (C1X + 10) " y" (C1Y + 100) " w24 h24 +BackgroundTrans +0x200 Center", "")
-        rm1.OnEvent("Click", ((p, t) => (*) => StratLib_Remove(p, t))(strat.path, strat.title != "" ? strat.title : strat.stem))
+        rm1.OnEvent("Click", ((p, s) => (*) => StratLib_Remove(p, s.title != "" ? s.title : s.stem))(strat.path, strat))
         rm1.PicControl := picRm
         rm1.ImgNormal := rmNormal
         rm1.ImgHover := rmHover
@@ -2382,6 +2394,21 @@ StratLib_Move(path, dir, *) {
     for st in LoadedStrats
         order .= (order = "" ? "" : "|") st.path
     IniWrite(order, StateFile, "Library", "Order")
+}
+
+; Shows a strat's edited title / author / description on its library card straight away (no Refresh needed).
+StratLib_UpdateCard(path, title, author, desc) {
+    global StratCards, ChildGui
+    for rec in StratCards {
+        if (rec.strat.path != path)
+            continue
+        rec.strat.title := title
+        rec.strat.author := author
+        rec.strat.desc := desc
+        rec.title.Value := title != "" ? title : (rec.strat.stem != "" ? rec.strat.stem : "Unknown Strat")
+        break
+    }
+    DllCall("RedrawWindow", "Ptr", ChildGui.Hwnd, "Ptr", 0, "Ptr", 0, "UInt", 0x185)
 }
 
 ; Opens a strat file for editing. The choice is remembered in settings ([Options] StratEditor = notepad | folder).
@@ -9257,9 +9284,11 @@ StratLib_ShowInfo(path, stem := "") {
 
 StratInfo_Close(*) {
     global StratInfoGui, StratInfoTiles, StratInfoTipShown, StratInfoTipLast, StratInfoBitmaps
-    global StratInfoPath, StratInfoEdit, StratInfoModTiles, StratInfoHead, StratInfoEditPic, StratInfoSavePic, StratInfoLower
+    global StratInfoPath, StratInfoEdit, StratInfoModTiles, StratInfoHead, StratInfoEditPic, StratInfoSavePic, StratInfoLower, StratInfoDescScroll
     SetTimer(StratInfo_Hover, 0)
     try OnMessage(0x0201, StratInfo_Click, 0)
+    try OnMessage(0x020A, StratInfo_Wheel, 0)
+    StratInfoDescScroll := false
     try ToolTip(, , , 19)
     StratInfoTipShown := "", StratInfoTipLast := ""
     StratInfoTiles := [], StratInfoModTiles := [], StratInfoLower := []
@@ -9290,6 +9319,11 @@ StratInfo_Click(wParam, lParam, msg, hwnd) {
     DllCall("GetCursorPos", "Ptr", pt)
     DllCall("ScreenToClient", "Ptr", StratInfoGui.Hwnd, "Ptr", pt)
     x := NumGet(pt, 0, "Int"), y := NumGet(pt, 4, "Int")
+    ; Edit / Cancel button in the top bar (checked before the drag bar, which it sits on)
+    if (StratInfoPath != "" && StratInfo_Hit(StratInfoEditRect, x, y)) {
+        StratInfo_SetEdit(!StratInfoEdit)
+        return 1
+    }
     if (y >= 0 && y < 38) {
         if (x >= StratInfoW - 42) {
             SetTimer(StratInfo_Close, -1)
@@ -9298,17 +9332,14 @@ StratInfo_Click(wParam, lParam, msg, hwnd) {
         }
         return 1
     }
+    if (StratInfoDescScroll && !StratInfoEdit && StratInfo_DescClick(x, y))
+        return 1
     if (StratInfoPath = "")
         return
-    ; Edit / Cancel button next to the MODIFIERS heading
-    if (StratInfo_Hit(StratInfoEditRect, x, y)) {
-        StratInfo_SetEdit(!StratInfoEdit)
-        return 1
-    }
     if (!StratInfoEdit)
         return
     if (StratInfo_Hit(StratInfoSaveRect, x, y)) {
-        StratInfo_SaveMods()
+        StratInfo_SaveAll()
         return 1
     }
     ; while editing, a click on a modifier square turns it on or off
@@ -9319,6 +9350,7 @@ StratInfo_Click(wParam, lParam, msg, hwnd) {
             else
                 StratInfoMods[tile.code] := true
             StratInfo_SetTile(tile, StratInfoMods.Has(tile.code))
+            StratInfo_UpdateBonus()
             StratInfo_Redraw()
             return 1
         }
@@ -9343,10 +9375,13 @@ StratInfo_SetTile(tile, isOn) {
     ctrl.Value := "HBITMAP:*" (isOn ? tile.bmpOn : tile.bmpOff)
 }
 
-; Switches the modifier editor on or off. Switching it off throws away changes that were not saved.
+; Switches edit mode on or off (Edit button in the top bar). In edit mode the title, author and description become
+; edit boxes, the modifier squares can be clicked and a Save button appears. Switching it off throws away unsaved changes.
 StratInfo_SetEdit(on) {
     global StratInfoGui, StratInfoW, StratInfoEdit, StratInfoMods, StratInfoModsOrig, StratInfoModTiles, StratInfoHead
-    global StratInfoEditPic, StratInfoSavePic, StratInfoEditBmps, StratInfoLower, StratInfoBaseH
+    global StratInfoEditPic, StratInfoEditBmps, StratInfoOrig, StratInfoFooter
+    global StratInfoTitleTxt, StratInfoAuthorTxt, StratInfoByLbl, StratInfoTitleEdit, StratInfoAuthorEdit, StratInfoDescEdit
+    global StratInfoTitleFrame, StratInfoAuthorFrame
     if (!StratInfoGui)
         return
     StratInfoEdit := on
@@ -9354,22 +9389,194 @@ StratInfo_SetEdit(on) {
         StratInfoMods := StratInfoModsOrig.Clone()
         for tile in StratInfoModTiles
             StratInfo_SetTile(tile, StratInfoMods.Has(tile.code))
+        StratInfoTitleEdit.Value := StratInfoOrig["title"]
+        StratInfoAuthorEdit.Value := StratInfoOrig["author"]
+        StratInfoDescEdit.Value := StratInfoOrig["desc"]
     }
-    StratInfoHead.Text := on ? "MODIFIERS  -  CLICK AN ICON TO TURN IT ON OR OFF" : "MODIFIERS"
+    StratInfoHead.Text := on ? "MODIFIERS  -  CLICK TO TOGGLE" : "MODIFIERS"
+    StratInfo_UpdateBonus()
+    StratInfoFooter.Text := StratInfo_Note()
     StratInfoEditPic.Value := "HBITMAP:*" StratInfoEditBmps[on ? 2 : 1]
-    StratInfoSavePic.Visible := on
-    ; the Save button needs room: everything below the modifiers moves down while editing
-    dy := on ? 44 : 0
-    for item in StratInfoLower
-        item[1].Move(, item[2] + dy)
-    StratInfoGui.Show("w" StratInfoW " h" (StratInfoBaseH + dy) " NA")
+    StratInfoTitleTxt.Visible := !on
+    StratInfoAuthorTxt.Visible := !on
+    for c in [StratInfoTitleFrame, StratInfoTitleEdit, StratInfoByLbl, StratInfoAuthorFrame, StratInfoAuthorEdit]
+        c.Visible := on
+    h := StratInfo_Layout()
+    StratInfoGui.Show("w" StratInfoW " h" h " NA")
+    StratInfo_Redraw()
+    if (on) {
+        try WinActivate("ahk_id " StratInfoGui.Hwnd)
+        try StratInfoTitleEdit.Focus()
+    }
+}
+
+; Places everything below the modifiers for the current mode and returns the window height.
+StratInfo_Layout() {
+    global StratInfoW, StratInfoEdit, StratInfoPath, StratInfoLowerY, StratInfoDescHead, StratInfoDescTxt
+    global StratInfoDescH, StratInfoHasDesc, StratInfoDescFrame, StratInfoDescEdit, StratInfoSavePic, StratInfoSaveRect, StratInfoFooter
+    global StratInfoDescScroll, StratInfoDescView, StratInfoDescTrack, StratInfoDescThumb, StratInfoDescViewY
+    pad := 22, innerW := StratInfoW - pad * 2
+    y := StratInfoLowerY
+    canEdit := (StratInfoPath != "")
+    showView := false
+    if (canEdit && StratInfoEdit) {
+        StratInfoDescHead.Visible := true
+        StratInfoDescHead.Move(, y)
+        StratInfoDescTxt.Visible := false
+        StratInfoDescFrame.Move(, y + 19)
+        StratInfoDescFrame.Visible := true
+        StratInfoDescEdit.Move(, y + 20)
+        StratInfoDescEdit.Visible := true
+        y += 20 + 96 + 16
+        StratInfoSavePic.Move(, y - 6)
+        StratInfoSavePic.Visible := true
+        StratInfoSaveRect := [pad, y, innerW, 32]
+        y += 32 + 18
+    } else {
+        if (canEdit) {
+            StratInfoDescFrame.Visible := false
+            StratInfoDescEdit.Visible := false
+            StratInfoSavePic.Visible := false
+        }
+        if (StratInfoHasDesc) {
+            StratInfoDescHead.Visible := true
+            StratInfoDescHead.Move(, y)
+            if (StratInfoDescScroll) {
+                ; long description: read-only viewport + scroll bar
+                showView := true
+                StratInfoDescTxt.Visible := false
+                StratInfoDescViewY := y + 20
+                StratInfoDescView.Move(, y + 20)
+                StratInfoDescTrack.Move(, y + 20)
+                StratInfo_DescSync()
+            } else {
+                StratInfoDescTxt.Visible := true
+                StratInfoDescTxt.Move(, y + 20)
+            }
+            y += 20 + StratInfoDescH + 18
+        } else {
+            StratInfoDescHead.Visible := false
+            StratInfoDescTxt.Visible := false
+        }
+    }
+    StratInfoDescView.Visible := showView
+    StratInfoDescTrack.Visible := showView
+    StratInfoDescThumb.Visible := showView
+    StratInfoFooter.Move(, y)
+    y += 16 + pad
+    return y
+}
+
+; Decides whether the description needs the scroll bar (more than StratInfoDescVis lines) and prepares the viewport.
+; text uses `n for line breaks. Sets StratInfoDescScroll and StratInfoDescH (the height the description needs).
+StratInfo_DescSetup(text) {
+    global StratInfoW, StratInfoDescVis, StratInfoDescLineH, StratInfoDescView, StratInfoDescThumb, StratInfoDescScroll
+    global StratInfoDescTotal, StratInfoDescThumbH, StratInfoDescH, StratInfoBitmaps
+    innerW := StratInfoW - 44
+    h := (text != "") ? StratInfo_MeasureH(text, innerW, "s9 w400") : 0
+    vh := StratInfoDescLineH * StratInfoDescVis
+    StratInfoDescScroll := false
+    StratInfoDescH := h
+    if (text = "" || h <= vh + 2)
+        return
+    StratInfoDescView.Value := StrReplace(text, "`n", "`r`n")
+    total := SendMessage(0xBA, 0, 0, StratInfoDescView)      ; EM_GETLINECOUNT (lines as wrapped in the viewport)
+    if (total <= StratInfoDescVis)
+        return
+    StratInfoDescScroll := true
+    StratInfoDescTotal := total
+    StratInfoDescH := vh
+    StratInfoDescThumbH := Max(30, Round(vh * StratInfoDescVis / total))
+    hThumb := CreateScrollThumb(6, StratInfoDescThumbH, 3, "0xFF6EA7FF", "0xff4076ce", "0xd4d4d4")
+    StratInfoBitmaps.Push(hThumb)
+    StratInfoDescThumb.Value := "HBITMAP:*" hThumb
+    StratInfoDescThumb.Move(, , 6, StratInfoDescThumbH)
+}
+
+; Puts the scroll thumb where the viewport currently is.
+StratInfo_DescSync() {
+    global StratInfoDescVis, StratInfoDescLineH, StratInfoDescView, StratInfoDescThumb, StratInfoDescTotal, StratInfoDescThumbH, StratInfoDescViewY
+    first := SendMessage(0xCE, 0, 0, StratInfoDescView)      ; EM_GETFIRSTVISIBLELINE
+    maxFirst := Max(1, StratInfoDescTotal - StratInfoDescVis)
+    trackH := StratInfoDescLineH * StratInfoDescVis
+    frac := Max(0, Min(1, first / maxFirst))
+    StratInfoDescThumb.Move(, StratInfoDescViewY + Round(frac * (trackH - StratInfoDescThumbH)))
+}
+
+; Scrolls the description to the given first line (0 = top).
+StratInfo_DescScrollTo(line) {
+    global StratInfoGui, StratInfoDescScroll, StratInfoDescView, StratInfoDescTotal, StratInfoDescVis
+    if (!StratInfoGui || !StratInfoDescScroll)
+        return
+    first := SendMessage(0xCE, 0, 0, StratInfoDescView)
+    target := Max(0, Min(StratInfoDescTotal - StratInfoDescVis, line))
+    if (target = first)
+        return
+    SendMessage(0xB6, 0, target - first, StratInfoDescView)  ; EM_LINESCROLL
+    StratInfo_DescSync()
     StratInfo_Redraw()
 }
 
-; Writes the working modifier set into the strat file's modifiers= line (standard modifiers in list order, then any
-; unknown entries that were already in the file, unchanged).
-StratInfo_SaveMods() {
-    global StratInfoPath, StratInfoMods, StratInfoModsOrig, StratInfoExtras, StratInfoHead
+StratInfo_DescScroll(lines) {
+    global StratInfoDescView
+    StratInfo_DescScrollTo(SendMessage(0xCE, 0, 0, StratInfoDescView) + lines)
+}
+
+; Click on the description's scroll bar: drag the thumb, or click the track to page up / down.
+StratInfo_DescClick(x, y) {
+    global StratInfoGui, StratInfoW, StratInfoDescVis, StratInfoDescLineH, StratInfoDescThumb, StratInfoDescThumbH
+    global StratInfoDescTotal, StratInfoDescViewY
+    trackX := 22 + (StratInfoW - 44) - 6
+    trackH := StratInfoDescLineH * StratInfoDescVis
+    if (x < trackX - 4 || x > trackX + 10 || y < StratInfoDescViewY || y > StratInfoDescViewY + trackH)
+        return false
+    StratInfoDescThumb.GetPos(, &thumbY)
+    if (y >= thumbY && y <= thumbY + StratInfoDescThumbH) {
+        grab := y - thumbY
+        maxFirst := Max(1, StratInfoDescTotal - StratInfoDescVis)
+        pt := Buffer(8, 0)
+        while (GetKeyState("LButton", "P") && StratInfoGui) {
+            DllCall("GetCursorPos", "Ptr", pt)
+            DllCall("ScreenToClient", "Ptr", StratInfoGui.Hwnd, "Ptr", pt)
+            cy := NumGet(pt, 4, "Int")
+            frac := Max(0, Min(1, (cy - grab - StratInfoDescViewY) / Max(1, trackH - StratInfoDescThumbH)))
+            StratInfo_DescScrollTo(Round(frac * maxFirst))
+            Sleep(15)
+        }
+    } else {
+        StratInfo_DescScroll(y < thumbY ? -StratInfoDescVis : StratInfoDescVis)
+    }
+    return true
+}
+
+; Mouse wheel over the description scrolls it (3 lines per notch).
+StratInfo_Wheel(wp, lp, msg, hwnd) {
+    global StratInfoGui, StratInfoW, StratInfoEdit, StratInfoDescScroll, StratInfoDescVis, StratInfoDescLineH, StratInfoDescViewY
+    if (!StratInfoGui || !StratInfoDescScroll || StratInfoEdit)
+        return
+    pt := Buffer(8, 0)
+    DllCall("GetCursorPos", "Ptr", pt)
+    under := DllCall("WindowFromPoint", "Int64", NumGet(pt, 0, "Int64"), "Ptr")
+    if (!under || DllCall("GetAncestor", "Ptr", under, "UInt", 2, "Ptr") != StratInfoGui.Hwnd)
+        return
+    DllCall("ScreenToClient", "Ptr", StratInfoGui.Hwnd, "Ptr", pt)
+    x := NumGet(pt, 0, "Int"), y := NumGet(pt, 4, "Int")
+    if (x < 22 || x > StratInfoW - 22 || y < StratInfoDescViewY || y > StratInfoDescViewY + StratInfoDescLineH * StratInfoDescVis)
+        return
+    StratInfo_DescScroll(((wp >> 16) & 0xFFFF) > 0x7FFF ? 3 : -3)
+    return 0
+}
+
+; Writes the edited title / author / description and the modifier set into the strat file.
+; (Description line breaks are stored as a literal \n; modifiers: standard ones in list order, then any unknown
+; entries that were already in the file, unchanged.)
+StratInfo_SaveAll() {
+    global StratInfoPath, StratInfoMods, StratInfoModsOrig, StratInfoExtras, StratInfoOrig, StratInfoFooter, StratInfoW
+    global StratInfoTitleEdit, StratInfoAuthorEdit, StratInfoDescEdit, StratInfoTitleTxt, StratInfoAuthorTxt
+    global StratInfoDescTxt, StratInfoDescH, StratInfoHasDesc, StratInfoTitleH
+    path := StratInfoPath
+    innerW := StratInfoW - 44
+
     parts := []
     for m in ModifierList() {
         if (StratInfoMods.Has(m[2]))
@@ -9377,17 +9584,106 @@ StratInfo_SaveMods() {
     }
     for e in StratInfoExtras
         parts.Push(e)
-    str := ""
+    modStr := ""
     for idx, c in parts
-        str .= (idx = 1 ? "" : ", ") c
-    if (SaveModifiersToStrategyFile(StratInfoPath, str)) {
-        StratInfoModsOrig := StratInfoMods.Clone()
-        StratInfo_SetEdit(false)
-        StratInfoHead.Text := "MODIFIERS  -  SAVED"
-    } else {
-        StratInfoHead.Text := "MODIFIERS  -  COULD NOT SAVE"
+        modStr .= (idx = 1 ? "" : ", ") c
+
+    title := Trim(StratInfoTitleEdit.Value)
+    author := Trim(StratInfoAuthorEdit.Value)
+    descEdit := Trim(StratInfoDescEdit.Value, " `t`r`n")
+    descFile := StrReplace(StrReplace(descEdit, "`r`n", "\n"), "`n", "\n")
+
+    ok := SaveModifiersToStrategyFile(path, modStr)
+    if (ok)
+        ok := StratInfo_WriteKey(path, "title", title)
+    if (ok)
+        ok := StratInfo_WriteKey(path, "author", author)
+    if (ok)
+        ok := StratInfo_WriteKey(path, "desc", descFile)
+    if (!ok) {
+        StratInfoFooter.Text := "Could not save - is the strategy file read-only or open in another program?"
+        StratInfo_Redraw()
+        return
     }
+
+    StratInfoModsOrig := StratInfoMods.Clone()
+    StratInfoOrig := Map("title", title, "author", author, "desc", descEdit)
+    SplitPath(path, , , , &stem)
+    StratInfoTitleTxt.Value := StratInfo_Fit(title != "" ? title : stem, innerW, "s14 w700", StratInfoTitleH)
+    StratInfoAuthorTxt.Value := "by " (author != "" ? author : "Unknown")
+    descView := StrReplace(descEdit, "`r`n", "`n")
+    StratInfoDescTxt.Value := descView
+    StratInfoHasDesc := (descEdit != "")
+    StratInfo_DescSetup(descView)
+    StratInfo_SetEdit(false)
+    StratLib_UpdateCard(path, title, author, descFile)
+    StratInfoFooter.Text := "Saved to the strategy file and the library."
     StratInfo_Redraw()
+}
+
+StratInfo_WriteKey(path, key, val) {
+    try {
+        if (val = "") {
+            if (IniRead(path, "Info", key, "") != "")
+                IniDelete(path, "Info", key)
+        } else {
+            IniWrite(val, path, "Info", key)
+        }
+        return true
+    } catch {
+        return false
+    }
+}
+
+; "REWARDS +NN%": the sum of the reward bonuses of the active modifiers (they all stack). Green when above 0.
+StratInfo_UpdateBonus() {
+    global StratInfoMods, StratInfoBonusTxt
+    if (!IsObject(StratInfoBonusTxt))
+        return
+    total := 0
+    for code, on in StratInfoMods
+        total += ModifierBonus(code)
+    StratInfoBonusTxt.SetFont(total > 0 ? "c5BD98C" : "c6F7785")
+    StratInfoBonusTxt.Value := "REWARDS  +" total "%"
+}
+
+StratInfo_Note() => "Use the pencil button on the card to edit the rest of this strategy."
+
+StratInfo_Escape(*) {
+    global StratInfoEdit
+    if (StratInfoEdit)
+        StratInfo_SetEdit(false)
+    else
+        StratInfo_Close()
+}
+
+; grey hint text shown inside an empty edit box
+StratInfo_Cue(ctrl, text) {
+    try DllCall("SendMessage", "Ptr", ctrl.Hwnd, "UInt", 0x1501, "Ptr", 1, "WStr", text)
+}
+
+; height a text needs at the given width and font (measured with a throw-away window that is never shown)
+StratInfo_MeasureH(text, w, fontOpts) {
+    mg := Gui()
+    mg.MarginX := 0, mg.MarginY := 0
+    mg.SetFont(fontOpts, "Segoe UI")
+    tmp := mg.Add("Text", "x0 y0 w" w, text)
+    tmp.GetPos(, , , &h)
+    mg.Destroy()
+    return h
+}
+
+; shortens text with "..." until it fits into maxH (so a long title cannot spill over the controls below it)
+StratInfo_Fit(text, w, fontOpts, maxH) {
+    if (StratInfo_MeasureH(text, w, fontOpts) <= maxH + 4)
+        return text
+    cut := text
+    while (StrLen(cut) > 4) {
+        cut := SubStr(cut, 1, StrLen(cut) - 3)
+        if (StratInfo_MeasureH(cut "...", w, fontOpts) <= maxH + 4)
+            return cut "..."
+    }
+    return cut
 }
 
 ; Shows the unit's name as a tooltip while the mouse rests on one of the unit squares.
@@ -9521,19 +9817,12 @@ StratInfo_Units(g, raw, &y, pad, innerW) {
 ; the heading lets the user click squares to turn modifiers on or off, and a Save changes button writes them to the
 ; strat file. Advances y.
 StratInfo_Modifiers(g, raw, &y, pad, innerW, canEdit) {
-    global StratInfoTiles, StratInfoBitmaps, StratInfoMods, StratInfoModsOrig, StratInfoExtras, StratInfoModTiles
+    global StratInfoTiles, StratInfoBitmaps, StratInfoMods, StratInfoModsOrig, StratInfoExtras, StratInfoModTiles, StratInfoBonusTxt
     global StratInfoHead, StratInfoEditPic, StratInfoSavePic, StratInfoEditBmps, StratInfoEditRect, StratInfoSaveRect
     g.SetFont("s8 w700 c6F7785", "Segoe UI")
-    StratInfoHead := g.Add("Text", "x" pad " y" y " w" (innerW - 72) " h14 Background121212", "MODIFIERS")
-    if (canEdit) {
-        ex := pad + innerW - 64, ey := y - 5
-        hEdit := CreateGradientButton(76, 36, 6, "0xFF3B7BD1", "0xFF1F4A8A", "0x40000000", "0x5dffffff", "Edit", "Segoe UI", 9, 1)
-        hCancel := CreateGradientButton(76, 36, 6, "0xff3a404c", "0xff1d2026", "0x40000000", "0x5dffffff", "Cancel", "Segoe UI", 9, 1)
-        StratInfoBitmaps.Push(hEdit, hCancel)
-        StratInfoEditBmps := [hEdit, hCancel]
-        StratInfoEditPic := g.Add("Picture", "x" (ex - 6) " y" (ey - 6) " w76 h36 +BackgroundTrans", "HBITMAP:*" hEdit)
-        StratInfoEditRect := [ex, ey, 64, 24]
-    }
+    StratInfoHead := g.Add("Text", "x" pad " y" y " w" (innerW - 150) " h14 Background121212", "MODIFIERS")
+    g.SetFont("s9 w700 c6F7785", "Segoe UI")
+    StratInfoBonusTxt := g.Add("Text", "x" (pad + innerW - 150) " y" (y - 2) " w150 h18 Right Background121212", "REWARDS  +0%")
     y += 22
 
     ; which modifiers the strat has: standard ones by code, anything else is kept as written when saving
@@ -9587,18 +9876,10 @@ StratInfo_Modifiers(g, raw, &y, pad, innerW, canEdit) {
             tile.plate := g.Add("Picture", "x" (tx - 6) " y" (ty - 6) " w" (sz + 12) " h" (sz + 12) " +BackgroundTrans", "HBITMAP:*" (isOn ? tile.bmpOn : tile.bmpOff))
         }
         StratInfoModTiles.Push(tile)
-        StratInfoTiles.Push(Map("x", tx, "y", ty, "w", sz, "h", sz, "name", m[3]))
+        StratInfoTiles.Push(Map("x", tx, "y", ty, "w", sz, "h", sz, "name", m[3] "  (+" ModifierBonus(m[2]) "%)"))
     }
     y += rows * sz + (rows - 1) * gap
-
-    ; Save changes (only visible while editing; the window grows by 44px to fit it)
-    if (canEdit) {
-        saveY := y + 12
-        hSave := CreateGradientButton(innerW + 12, 44, 8, "0xFF147A6E", "0xFF214B75", "0x40000000", "0x5dffffff", "Save changes", "Segoe UI", 11, 1)
-        StratInfoBitmaps.Push(hSave)
-        StratInfoSavePic := g.Add("Picture", "x" (pad - 6) " y" (saveY - 6) " w" (innerW + 12) " h44 +BackgroundTrans Hidden", "HBITMAP:*" hSave)
-        StratInfoSaveRect := [pad, saveY, innerW, 32]
-    }
+    StratInfo_UpdateBonus()
     y += 20
 }
 
@@ -9607,7 +9888,12 @@ StratInfo_Modifiers(g, raw, &y, pad, innerW, canEdit) {
 StratInfo(title := "Unknown strat", author := "", towers := "", mods := "", desc := "", accent := "3A86FF", path := "") {
     global StratInfoGui
     StratInfo_Close()
-    global StratInfoW, StratInfoTiles, StratInfoPath, StratInfoEdit, StratInfoLower, StratInfoBaseH
+    global StratInfoW, StratInfoTiles, StratInfoPath, StratInfoEdit, StratInfoLower, StratInfoBaseH, StratInfoBitmaps
+    global StratInfoEditPic, StratInfoEditBmps, StratInfoEditRect, StratInfoSavePic, StratInfoSaveRect
+    global StratInfoTitleTxt, StratInfoAuthorTxt, StratInfoByLbl, StratInfoTitleH, StratInfoTitleEdit, StratInfoAuthorEdit, StratInfoDescEdit
+    global StratInfoTitleFrame, StratInfoAuthorFrame, StratInfoDescFrame, StratInfoDescHead, StratInfoDescTxt, StratInfoDescH
+    global StratInfoHasDesc, StratInfoLowerY, StratInfoFooter, StratInfoOrig
+    global StratInfoDescView, StratInfoDescTrack, StratInfoDescThumb, StratInfoDescLineH, StratInfoDescVis
     W := 460, pad := 22, innerW := W - pad * 2
     StratInfoW := W
     StratInfoTiles := []
@@ -9625,55 +9911,98 @@ StratInfo(title := "Unknown strat", author := "", towers := "", mods := "", desc
     g.SetFont("s11 w400 cB8BEC8", "Segoe UI")
     g.Add("Text", "x" (W - 42) " y0 w42 h38 +0x200 Center Background0A0A0A", Chr(0x2715))
 
+    ; Edit / Cancel button in the top bar (clicks are handled by StratInfo_Click)
+    if (path != "") {
+        hEdit := CreateGradientButton(76, 36, 6, "0xFF3B7BD1", "0xFF1F4A8A", "0x40000000", "0x5dffffff", "Edit", "Segoe UI", 9, 1)
+        hCancel := CreateGradientButton(76, 36, 6, "0xff3a404c", "0xff1d2026", "0x40000000", "0x5dffffff", "Cancel", "Segoe UI", 9, 1)
+        StratInfoBitmaps.Push(hEdit, hCancel)
+        StratInfoEditBmps := [hEdit, hCancel]
+        ex := W - 42 - 14 - 64, ey := 7
+        StratInfoEditPic := g.Add("Picture", "x" (ex - 6) " y" (ey - 6) " w76 h36 +BackgroundTrans", "HBITMAP:*" hEdit)
+        StratInfoEditRect := [ex, ey, 64, 24]
+    }
+
     ; accent strip under the bar
     g.Add("Text", "x0 y38 w" W " h2 Background" accent, "")
 
     y := 58
-    ; title + author
+    canEdit := (path != "")
+    rawTitle := "", rawAuthor := "", rawDesc := ""
+    if (canEdit) {
+        rawTitle := IniRead(path, "Info", "title", "")
+        rawAuthor := IniRead(path, "Info", "author", "")
+        rawDesc := StrReplace(IniRead(path, "Info", "desc", ""), "\n", "`r`n")
+    }
+    StratInfoOrig := Map("title", rawTitle, "author", rawAuthor, "desc", rawDesc)
+
+    ; title (+ edit box shown in edit mode)
     g.SetFont("s14 w700 cFFFFFF", "Segoe UI")
     t := g.Add("Text", "x" pad " y" y " w" innerW " +BackgroundTrans", title)
     t.GetPos(, , , &th)
-    y += th + 2
-    if (author != "") {
-        g.SetFont("s9 w400 c8A93A3", "Segoe UI")
-        g.Add("Text", "x" pad " y" y " w" innerW " h18 +BackgroundTrans", "by " author)
-        y += 28
-    } else {
-        y += 10
+    StratInfoTitleTxt := t, StratInfoTitleH := th
+    if (canEdit) {
+        StratInfoTitleFrame := g.Add("Text", "x" (pad - 1) " y" (y - 2) " w" (innerW + 2) " h" (th + 4) " Background3A404C Hidden", "")
+        StratInfoTitleEdit := g.Add("Edit", "x" pad " y" (y - 1) " w" innerW " h" (th + 2) " -E0x200 -VScroll Limit100 Background1B1E23 Hidden", rawTitle)
+        StratInfo_Cue(StratInfoTitleEdit, "Strategy name")
     }
+    y += th + 2
+
+    ; author (+ edit box shown in edit mode)
+    g.SetFont("s9 w400 c8A93A3", "Segoe UI")
+    StratInfoAuthorTxt := g.Add("Text", "x" pad " y" y " w" innerW " h18 +BackgroundTrans", author != "" ? "by " author : "")
+    if (canEdit) {
+        StratInfoByLbl := g.Add("Text", "x" pad " y" (y + 1) " w20 h18 +BackgroundTrans Hidden", "by")
+        StratInfoAuthorFrame := g.Add("Text", "x" (pad + 21) " y" (y - 2) " w" (innerW - 21) " h24 Background3A404C Hidden", "")
+        g.SetFont("s9 w400 cFFFFFF", "Segoe UI")
+        StratInfoAuthorEdit := g.Add("Edit", "x" (pad + 22) " y" (y - 1) " w" (innerW - 23) " h22 -E0x200 -VScroll Limit60 Background1B1E23 Hidden", rawAuthor)
+        StratInfo_Cue(StratInfoAuthorEdit, "Unknown")
+    }
+    y += (author != "" || canEdit) ? 28 : 10
 
     StratInfo_Units(g, towers, &y, pad, innerW)
     StratInfo_Modifiers(g, mods, &y, pad, innerW, path != "")
-    lowerStart := y
-
-    ; description
-    if (desc != "") {
-        g.SetFont("s8 w700 c6F7785", "Segoe UI")
-        g.Add("Text", "x" pad " y" y " w" innerW " h14 +BackgroundTrans", "DESCRIPTION")
-        y += 20
-        g.SetFont("s9 w400 cC5CBD3", "Segoe UI")
-        d := g.Add("Text", "x" pad " y" y " w" innerW " +BackgroundTrans", StrReplace(desc, "\n", "`n"))
-        d.GetPos(, , , &dh)
-        y += dh + 18
+    ; description, footer and the Save button: placed for the current mode by StratInfo_Layout
+    StratInfoLowerY := y
+    StratInfoHasDesc := (desc != "")
+    g.SetFont("s8 w700 c6F7785", "Segoe UI")
+    StratInfoDescHead := g.Add("Text", "x" pad " y" y " w" innerW " h14 +BackgroundTrans", "DESCRIPTION")
+    g.SetFont("s9 w400 cC5CBD3", "Segoe UI")
+    StratInfoDescTxt := g.Add("Text", "x" pad " y" (y + 20) " w" innerW " +BackgroundTrans", StrReplace(desc, "\n", "`n"))
+    ; viewport used instead of the text above when the description is longer than StratInfoDescVis lines:
+    ; a read-only edit box without its own scroll bar, plus a scroll bar drawn like the library's (6px track + blue thumb)
+    StratInfoDescView := g.Add("Edit", "x" pad " y" y " w" (innerW - 14) " h60 Multi ReadOnly -VScroll -E0x200 -Tabstop Background121212 Hidden", "A`r`nA")
+    SendMessage(0xD3, 3, 0, StratInfoDescView)               ; EM_SETMARGINS: no inner margins, so it lines up with the other text
+    p0 := SendMessage(0xD6, 0, 0, StratInfoDescView)         ; EM_POSFROMCHAR: where line 1 and line 2 start -> the edit's real line height
+    p1 := SendMessage(0xD6, 3, 0, StratInfoDescView)
+    lineH := ((p1 >> 16) & 0xFFFF) - ((p0 >> 16) & 0xFFFF)
+    if (lineH < 8 || lineH > 40)
+        lineH := Max(12, StratInfo_MeasureH("A`nA", innerW, "s9 w400") - StratInfo_MeasureH("A", innerW, "s9 w400"))
+    StratInfoDescLineH := lineH
+    StratInfoDescView.Value := ""
+    StratInfoDescView.Move(, , , lineH * StratInfoDescVis)
+    hTrack := CreateScrollThumb(6, lineH * StratInfoDescVis, 3, "0xff000000", "0xff000000", "0x000000")
+    hThumb0 := CreateScrollThumb(6, 30, 3, "0xFF6EA7FF", "0xff4076ce", "0xd4d4d4")
+    StratInfoBitmaps.Push(hTrack, hThumb0)
+    StratInfoDescTrack := g.Add("Picture", "x" (pad + innerW - 6) " y" y " w6 h" (lineH * StratInfoDescVis) " +BackgroundTrans Hidden", "HBITMAP:*" hTrack)
+    StratInfoDescThumb := g.Add("Picture", "x" (pad + innerW - 6) " y" y " w6 h30 +BackgroundTrans Hidden", "HBITMAP:*" hThumb0)
+    StratInfo_DescSetup(StrReplace(desc, "\n", "`n"))
+    if (canEdit) {
+        StratInfoDescFrame := g.Add("Text", "x" (pad - 1) " y" (y + 19) " w" (innerW + 2) " h98 Background3A404C Hidden", "")
+        g.SetFont("s9 w400 cFFFFFF", "Segoe UI")
+        StratInfoDescEdit := g.Add("Edit", "x" pad " y" (y + 20) " w" innerW " h96 Multi +VScroll -E0x200 Background1B1E23 Hidden", rawDesc)
+        hSave := CreateGradientButton(innerW + 12, 44, 8, "0xFF147A6E", "0xFF214B75", "0x40000000", "0x5dffffff", "Save changes", "Segoe UI", 11, 1)
+        StratInfoBitmaps.Push(hSave)
+        StratInfoSavePic := g.Add("Picture", "x" (pad - 6) " y" y " w" (innerW + 12) " h44 +BackgroundTrans Hidden", "HBITMAP:*" hSave)
     }
-
-    ; footer hint
     g.SetFont("s8 w400 c6F7785", "Segoe UI")
-    g.Add("Text", "x" pad " y" y " w" innerW " h16 +BackgroundTrans", "Use the pencil button on the card to edit the rest of this strategy.")
-    y += 16 + pad
-
-    ; everything below the modifiers moves down while the modifier editor is open (see StratInfo_SetEdit)
-    StratInfoLower := []
-    for ctrlHwnd, ctrl in g {
-        ctrl.GetPos(, &cy)
-        if (cy >= lowerStart)
-            StratInfoLower.Push([ctrl, cy])
-    }
+    StratInfoFooter := g.Add("Text", "x" pad " y" y " w" innerW " h16 +BackgroundTrans", StratInfo_Note())
+    y := StratInfo_Layout()
     StratInfoBaseH := y
 
-    g.OnEvent("Escape", StratInfo_Close)
+    g.OnEvent("Escape", StratInfo_Escape)
     g.OnEvent("Close", StratInfo_Close)
     OnMessage(0x0201, StratInfo_Click)
+    OnMessage(0x020A, StratInfo_Wheel)
     SetTimer(StratInfo_Hover, 30)
 
     ; centre it over the macro window
