@@ -8324,7 +8324,7 @@ ShowDebugConsole() {
     if (DebugConsole != "1" && DebugConsole != 1) {
         return
     }
-    if (OverlayHWND && WinExist("ahk_id " OverlayHWND)) {
+    if (OverlayHWND && OverlayWindowExists()) {
         return
     }
 
@@ -8365,11 +8365,23 @@ HideDebugConsole() {
         Gdip_DeleteGraphics(OverlayGraphics)
         OverlayGraphics := 0 
     }
-    if (OverlayHWND) {
-        WinClose("ahk_id " OverlayHWND)
-    }
+    CloseOverlayWindow()
     OverlayHWND    := 0
     OverlayPicHWND := 0
+}
+
+; AutoHotkey's WinExist / WinClose ignore hidden windows and throw "Target window not found" when the window is
+; gone, which used to stop the macro inside SafeReload. These two look the window up by its handle instead, so they
+; work whether it is visible, hidden or already closed, and never throw.
+OverlayWindowExists() {
+    global OverlayHWND
+    return (OverlayHWND && DllCall("IsWindow", "Ptr", OverlayHWND)) ? true : false
+}
+
+CloseOverlayWindow() {
+    global OverlayHWND
+    if (OverlayWindowExists())
+        DllCall("PostMessage", "Ptr", OverlayHWND, "UInt", 0x10, "Ptr", 0, "Ptr", 0)      ; WM_CLOSE
 }
 
 UpdateOverlay() {
@@ -8391,12 +8403,7 @@ UpdateOverlay() {
     sig := startIndex "|" LogLines.Length "|" (LogLines.Length ? LogTimes[LogLines.Length] : 0)
     if (sig = OverlaySig)
         return                          ; same lines as last time: nothing to redraw
-    OverlaySig := sig
-    if (startIndex > LogLines.Length) {
-        DllCall("ShowWindow", "Ptr", OverlayHWND, "Int", 0)        ; SW_HIDE: no line to show, so no window at all
-        return
-    }
-    DllCall("ShowWindow", "Ptr", OverlayHWND, "Int", 4)            ; SW_SHOWNOACTIVATE
+    OverlaySig := sig       ; with no line left to show, the code below simply draws an empty (transparent) image
 
     if (IsSet(OverlayGraphics) && OverlayGraphics) {
         if (OverlayGraphics != 0 && OverlayGraphics != "") {
@@ -8504,7 +8511,7 @@ LogToConsole(text, SendWebhookInstantly := false, flush := true) {
         LogTimes.RemoveAt(1)
     }
 
-    if (OverlayHWND && WinExist("ahk_id " OverlayHWND))
+    if (OverlayHWND && OverlayWindowExists())
         UpdateOverlay()
 
     if (WebhookEnabled && WebhookLink != "" && RunningStrategy) {
@@ -8955,10 +8962,8 @@ SafeReload() {
     RestartLock := true
     AuditLog("INFO", "Reload", "Macro reloading (SafeReload)")
     KillSubmacros()
-    if (OverlayHWND) {
-        WinClose("ahk_id " OverlayHWND)
-    }
-    
+    CloseOverlayWindow()
+
     if (IsSet(MainGui) && MainGui) {
         MainGui.Destroy()
     }
