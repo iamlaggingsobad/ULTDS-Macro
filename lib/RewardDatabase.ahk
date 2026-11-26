@@ -10,7 +10,8 @@
 ;
 ; HOW REWARDS ARE WORKED OUT (see ComputeRewards)
 ;   WIN strategy (result=win, or no result= line)
-;     reward = the game mode's set reward  x  map difficulty scaling  x  (1 + modifier bonus)
+;     coins and gems = the game mode's set reward  x  map difficulty scaling  x  (1 + modifier bonus)
+;     unit EXP       = the game mode's set reward  x  (1 + modifier bonus)      (map difficulty never changes EXP)
 ;     The coins= / gems= / exp= lines in the strat's [Info] section are IGNORED: they cannot be typed in.
 ;   LOSE strategy (result=lose)
 ;     The rewards written in the strat's [Info] section are shown exactly as typed. Map scaling and modifier
@@ -53,7 +54,8 @@ RatingScalePct(rating) {
 
 ; Total multiplier as a number out of 10000 (10000 = 1.0x), so the maths stays in whole numbers.
 ;   1. the bonuses of all active modifiers are ADDED together first:  +30% and +10% = 1 + 0.30 + 0.10 = 1.4x
-;   2. that total is MULTIPLIED with the map scaling:                 Insane map (1.5x) with +30% = 1.5 x 1.3 = 1.95x
+;   2. that total is MULTIPLIED with the map scaling (coins and gems only; for unit EXP the map scaling is 100%):
+;                                                                     Insane map (1.5x) with +30% = 1.5 x 1.3 = 1.95x
 RewardMultiplier(scalePct, bonusPct) {
     return scalePct * (100 + bonusPct)
 }
@@ -94,7 +96,7 @@ RewardSizeFor(kind, amount) {
 
 ; The rewards the library card shows for a strat (a record from the library loader, with .difficulty .map .modifiers
 ; .result and the typed .coins .gems .exp). Returns
-;   {win, special, computed, scalePct, bonus, coins: R, gems: R, exp: R}
+;   {win, special, computed, scalePct, bonus, coins: R, gems: R, exp: R}      (scalePct applies to coins and gems only)
 ; with R = {orig, amount, size, text, active, changed}
 ;   orig    the game mode's set reward (or the typed amount when nothing is calculated)
 ;           (not called "base": that name is reserved on every AutoHotkey v2 object)
@@ -125,9 +127,10 @@ ComputeRewards(strat) {
             out.scalePct := RatingScalePct(info.rating)
         out.bonus := ModifierBonusTotal(strat.modifiers)
     }
-    mult := RewardMultiplier(out.scalePct, out.bonus)
     for i, kind in ["coins", "gems", "exp"] {
         orig := table[i]
+        ; map difficulty scales coins and gems only; unit EXP is changed by the modifiers alone
+        mult := RewardMultiplier(kind = "exp" ? 100 : out.scalePct, out.bonus)
         amount := orig > 0 ? Round(orig * mult / 10000) : 0
         size := (kind != "exp" && amount > 0) ? RewardSizeFor(kind, amount) : ""
         out.%kind% := {orig: orig, amount: amount, size: size, text: String(amount), active: amount > 0, changed: amount != orig}

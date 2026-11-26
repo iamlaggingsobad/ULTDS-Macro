@@ -2,9 +2,10 @@
 title=Gem Suicide Exp V1
 author=Viperdio
 desc=
+result=lose
 coins=0
-gems=largest
-exp=137
+gems=137
+exp=106
 time=~10m
 
 [Settings]

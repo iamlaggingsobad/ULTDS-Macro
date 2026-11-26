@@ -2,9 +2,7 @@
 title=Cheeze Molten V2
 author=Cheeze
 desc=
-coins=1425, large
-gems=0
-exp=120
+result=win
 time=~14m 20s
 
 [Settings]

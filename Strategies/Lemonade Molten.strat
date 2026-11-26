@@ -2,9 +2,7 @@
 title=Lemonade Molten
 author=BloodyRain
 desc=re-enforcements LVL 3 NEEDED!
-coins=1425, large
-gems=0
-exp=120
+result=win
 time=~14m 20s
 
 [Settings]

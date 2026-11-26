@@ -150,6 +150,8 @@ SetMouseDelay(MouseDelay)
 SetKeyDelay(KeyDelay)
 
 global LogLines := []
+global LogTimes := []        ; A_TickCount of each log line, so the Debug Console can fade old lines
+global OverlaySig := ""      ; what the Debug Console last drew (skips redraws when nothing changed)
 global OverlayHWND := 0
 global OverlayBitmap := 0
 global OverlayGraphics := 0
@@ -185,6 +187,9 @@ global UpgradeTowerGKey := IniRead(SettingsFile, "Hotkeys", "UpgradeTower", "E")
 global UpgradeTowerGBKey := IniRead(SettingsFile, "Hotkeys", "UpgradeBottom", "Z")
 TimeScaleMode := IniRead(SettingsFile, "Options", "TimeScaleMode", "OFF")
 global DebugConsole := IniRead(SettingsFile, "Options", "DebugConsole", "1")
+; Seconds a Debug Console line stays on screen before it fades away (0 = never). Set "OverlayLifetime" under [Options] in the settings file.
+global OverlayLifetime := IniRead(SettingsFile, "Options", "OverlayLifetime", "10")
+OverlayLifetime := IsInteger(OverlayLifetime) ? Integer(OverlayLifetime) : 10
 
 global TimescaleActive := false
 
@@ -960,6 +965,10 @@ Gap    := 10
 
 ContentH := StartY
 
+; Frame of the card whose strategy is currently loaded for playback: soft slate-blue border (the same blue-grey family
+; as the "on" modifier plates in the Info window) and a slightly blue background. Colours: background, outer line, inner line.
+hFrameActive := CreateFrame(CardW, CardH, 10, "0xff161b26", "0xff6F8FC9", "0xaa6F8FC9")
+
 for index, strat in LoadedStrats {
     CurrentY := StartY + ((index - 1) * (CardH + Gap))
     ContentH := CurrentY + CardH + Gap 
@@ -968,7 +977,7 @@ for index, strat in LoadedStrats {
     C1Y := CurrentY
 
     hFrameBg := CreateFrame(CardW, CardH, 10, "0xff161616", "0xff1d1d1d", "0x62302d2d")
-    ChildGui.Add("Picture", "x" C1X " y" C1Y " w" CardW " h" CardH " +BackgroundTrans", "HBITMAP:*" hFrameBg)
+    frameCtrl := ChildGui.Add("Picture", "x" C1X " y" C1Y " w" CardW " h" CardH " +BackgroundTrans", "HBITMAP:*" hFrameBg)
 
     ; ---- Card layout (610 x 134) --------------------------------------------------
     ; Every element owns a fixed box, so nothing can overlap. Long text is cut off with "...".
@@ -1093,6 +1102,7 @@ for index, strat in LoadedStrats {
     cardRec := {strat: strat, ctrls: [], up: "", down: ""}
     cardRec.title := titleCtrl      ; the title text, so StratLib_UpdateCard can change it live
     cardRec.rewards := rewardCtrls  ; coins / gems / exp labels, so StratLib_ApplyRewards can change them live
+    cardRec.frame := frameCtrl, cardRec.hFrame := hFrameBg, cardRec.hFrameOn := hFrameActive, cardRec.active := false   ; for StratLib_UpdateActive
     for dirName in ["Up", "Down"] {
         glyph := dirName = "Up" ? Chr(0x25B2) : Chr(0x25BC)
         ay := C1Y + 10 + (dirName = "Up" ? 0 : 30)
@@ -1209,6 +1219,7 @@ for index, strat in LoadedStrats {
     StratCards.Push(cardRec)
     StratLib_ApplyRewards(cardRec)
 }
+StratLib_UpdateActive()
 
 if (LoadedStrats.Length == 0) {
     ChildGui.SetFont("s12 c7E848E", "Segoe UI")
@@ -2420,7 +2431,7 @@ RewardTipText(kind, v, rw) {
     text := (kind = "exp") ? "Tower EXP" : ((v.size = "" ? "No" : StrUpper(SubStr(v.size, 1, 1)) SubStr(v.size, 2)) " " kind)
     if (v.changed) {
         parts := ""
-        if (rw.scalePct != 100)
+        if (kind != "exp" && rw.scalePct != 100)          ; the map does not scale unit EXP
             parts := "map " rw.scalePct "%"
         if (rw.bonus > 0)
             parts .= (parts != "" ? ", " : "") "modifiers +" rw.bonus "%"
@@ -2484,6 +2495,28 @@ StratLib_UpdateCard(path, title, author, desc) {
         break
     }
     DllCall("RedrawWindow", "Ptr", ChildGui.Hwnd, "Ptr", 0, "Ptr", 0, "UInt", 0x185)
+}
+
+; Highlights the library card of the strategy that is loaded for playback (CurrentStrategyFile, which changes when you
+; press Load and when strategy rotation swaps strategies; before anything has been loaded it is the strategy in slot 1).
+; The card's frame picture is swapped for the bright one, and the previously active card gets its normal frame back.
+StratLib_UpdateActive() {
+    global StratCards, ChildGui, CurrentStrategyFile, Strategy1Path
+    if (!IsSet(StratCards) || !IsSet(ChildGui))
+        return
+    active := CurrentStrategyFile != "" ? CurrentStrategyFile : Strategy1Path
+    key := StrLower(StrReplace(active, "/", "\"))
+    changed := false
+    for rec in StratCards {
+        on := (key != "" && StrLower(StrReplace(rec.strat.path, "/", "\")) = key)
+        if (on = rec.active)
+            continue
+        rec.active := on
+        rec.frame.Value := "HBITMAP:*" (on ? rec.hFrameOn : rec.hFrame)
+        changed := true
+    }
+    if (changed)
+        DllCall("RedrawWindow", "Ptr", ChildGui.Hwnd, "Ptr", 0, "Ptr", 0, "UInt", 0x185)
 }
 
 ; Opens a strat file for editing. The choice is remembered in settings ([Options] StratEditor = notepad | folder).
@@ -4824,6 +4857,7 @@ LoadStrategyFile(file) {
     global modifiers, Commander, StrategyWidth, StrategyHeight, CurrentStrategyFile
 
     CurrentStrategyFile := file
+    try StratLib_UpdateActive()
 
     Towers := Map()
     RecordedSteps := []
@@ -8284,7 +8318,7 @@ MapToString(inputMap) {
 
 
 ShowDebugConsole() {
-    global DebugConsole, OverlayHWND, OverlayBitmap, OverlayGraphics, OverlayPicHWND
+    global DebugConsole, OverlayHWND, OverlayBitmap, OverlayGraphics, OverlayPicHWND, OverlaySig
     global OverlayX, OverlayY, OverlayWidth, OverlayHeight
     
     if (DebugConsole != "1" && DebugConsole != 1) {
@@ -8314,12 +8348,15 @@ ShowDebugConsole() {
     OverlayBitmap   := Gdip_CreateBitmap(OverlayWidth, OverlayHeight)
     OverlayGraphics := Gdip_GraphicsFromImage(OverlayBitmap)
     Gdip_SetSmoothingMode(OverlayGraphics, 4)
-    
+
+    OverlaySig := ""
+    SetTimer(UpdateOverlay, 1000)       ; lets old lines fade away even when nothing new is logged
 }
 
 HideDebugConsole() {
-    global OverlayHWND, OverlayBitmap, OverlayGraphics, OverlayPicHWND
-    
+    global OverlayHWND, OverlayBitmap, OverlayGraphics, OverlayPicHWND, OverlaySig
+    SetTimer(UpdateOverlay, 0)
+    OverlaySig := ""
     if (OverlayBitmap) { 
         Gdip_DisposeImage(OverlayBitmap)
         OverlayBitmap := 0 
@@ -8336,10 +8373,30 @@ HideDebugConsole() {
 }
 
 UpdateOverlay() {
-    global OverlayBitmap, OverlayGraphics, OverlayPicHWND, LogLines, OverlayWidth, OverlayHeight
+    global OverlayBitmap, OverlayGraphics, OverlayPicHWND, OverlayHWND, LogLines, LogTimes, OverlayWidth, OverlayHeight, OverlayLifetime, OverlaySig
     if (!OverlayGraphics) {
         return
     }
+
+    ; Only the newest lines are shown, and only while they are younger than OverlayLifetime seconds (0 = no limit).
+    ; A timer calls this once a second so expired lines really disappear.
+    maxLinesNow := Floor(OverlayHeight / (12 * 1.4))
+    startIndex := LogLines.Length + 1
+    Loop Min(maxLinesNow, LogLines.Length) {
+        idx := LogLines.Length - A_Index + 1
+        if (OverlayLifetime > 0 && A_TickCount - LogTimes[idx] > OverlayLifetime * 1000)
+            break
+        startIndex := idx
+    }
+    sig := startIndex "|" LogLines.Length "|" (LogLines.Length ? LogTimes[LogLines.Length] : 0)
+    if (sig = OverlaySig)
+        return                          ; same lines as last time: nothing to redraw
+    OverlaySig := sig
+    if (startIndex > LogLines.Length) {
+        DllCall("ShowWindow", "Ptr", OverlayHWND, "Int", 0)        ; SW_HIDE: no line to show, so no window at all
+        return
+    }
+    DllCall("ShowWindow", "Ptr", OverlayHWND, "Int", 4)            ; SW_SHOWNOACTIVATE
 
     if (IsSet(OverlayGraphics) && OverlayGraphics) {
         if (OverlayGraphics != 0 && OverlayGraphics != "") {
@@ -8377,7 +8434,7 @@ UpdateOverlay() {
     }
 
     pBrushTextOverlay := Gdip_BrushCreateSolid(textColor)
-    pBrushBgOverlay  := Gdip_BrushCreateSolid(0xAA000000)
+    pBrushBgOverlay  := Gdip_BrushCreateSolid(0xFF111111)     ; dark grey bar behind each line (pure black would be see-through)
 
     if (!pBrushTextOverlay || !pBrushBgOverlay) {
         if (pBrushTextOverlay) => Gdip_DeleteBrush(pBrushTextOverlay)
@@ -8389,7 +8446,6 @@ UpdateOverlay() {
     }
 
     maxLines   := Floor(OverlayHeight / (fontSize * 1.4))
-    startIndex := Max(1, LogLines.Length - maxLines + 1)
     yPos := 5, maxWidth := OverlayWidth - 20
 
     wrappedLines := []
@@ -8428,7 +8484,7 @@ UpdateOverlay() {
 
     if (IsSet(OverlayBitmap) && OverlayBitmap) {
         try {
-            hBitmap := Gdip_CreateHBITMAPFromBitmap(OverlayBitmap)
+            hBitmap := Gdip_CreateHBITMAPFromBitmap(OverlayBitmap, 0xFF000000)   ; black background = transparent (the default is white)
             SetImage(OverlayPicHWND, hBitmap)
             DeleteObject(hBitmap)
         }
@@ -8436,14 +8492,17 @@ UpdateOverlay() {
 }
 
 LogToConsole(text, SendWebhookInstantly := false, flush := true) {
-    global DebugConsole, LogLines, OverlayHWND, WebhookEnabled, WebhookLink, RunningStrategy, AutorunStartTime
+    global DebugConsole, LogLines, LogTimes, OverlayHWND, WebhookEnabled, WebhookLink, RunningStrategy, AutorunStartTime
 
     time := FormatTime(, "HH:mm:ss")
     AuditAuto(text)
     formattedText := "[" time "] " text
     LogLines.Push(formattedText)
-    while (LogLines.Length > 500)
+    LogTimes.Push(A_TickCount)
+    while (LogLines.Length > 500) {
         LogLines.RemoveAt(1)
+        LogTimes.RemoveAt(1)
+    }
 
     if (OverlayHWND && WinExist("ahk_id " OverlayHWND))
         UpdateOverlay()
@@ -10470,7 +10529,7 @@ SaveModifiersToStrategyFile(path, modStr) {
         return false
     try {
         IniWrite(modStr, path, "Settings", "modifiers")
-        LogToConsole("Saved modifiers to " path ": " modStr)
+        AuditLog("INFO", "Library", "Saved modifiers to " path ": " modStr)      ; audit file only, not the on-screen Debug Console
         return true
     } catch {
         return false

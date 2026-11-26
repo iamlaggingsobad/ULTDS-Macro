@@ -2,9 +2,7 @@
 title=Beginner Exp Coin Molten
 author=kalhoty.
 desc=
-coins=medium
-gems=0
-exp=?
+result=win
 time=?
 
 [Settings]

@@ -2,9 +2,7 @@
 title=Pikaboo Molten
 author=Pikaboo
 desc=
-coins=medium
-gems=0
-exp=?
+result=win
 time=?
 
 [Settings]

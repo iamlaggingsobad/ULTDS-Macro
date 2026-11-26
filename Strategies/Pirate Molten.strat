@@ -2,9 +2,7 @@
 title=Pirate Molten
 author=nthingmore & 848swark
 desc=
-coins=large
-gems=0
-exp=120
+result=win
 time=?
 
 [Settings]

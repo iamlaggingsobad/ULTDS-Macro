@@ -21,6 +21,7 @@ Automation macro for Roblox **Tower Defense Simulator**. Record strategies, repl
 
 ### Strategy Library
 - Strategies are stored in the `Strategies` folder next to `Main.ahk` and shown as cards. Each card has five icon plates with their value underneath: **game mode**, **map** (picture and difficulty rating), **coins**, **gems** and **unit EXP**. Hover a plate to see its name. Special modes (Badlands II, Pizza Party, Polluted Wasteland II) come with their own map.
+- The strategy that is **currently loaded** (the last one you pressed **Load** on, or the one strategy rotation has swapped to) has a soft slate-blue border and a slightly blue background. Before anything is loaded, the strategy in slot 1 is highlighted.
 - **Add** imports a `.strat` file, **Open folder** browses the library and **Refresh** reloads it. Strategies you record appear alongside imported ones (saved in `%AppData%\Unlimited_Macro\Recordings`).
 - On each card, the **up / down arrows** move it in the list (the order is saved), the **pencil** opens the `.strat` file (right-click it to change the program) and the **trash can** deletes the strategy.
 - **Info window** – Press **Info** on a card to see the required towers (hover a square for the tower's name) and the strategy's modifiers. Press **Edit** (it becomes **Cancel** while editing) to change the title, author, description and modifiers, click a modifier to turn it on (colour icon on a lighter square) or off (grayscale icon on a darker square), then press **Save changes**. The `.strat` file and the card update immediately; **Cancel** discards your changes.
@@ -29,7 +30,9 @@ Automation macro for Roblox **Tower Defense Simulator**. Record strategies, repl
 ### Rewards
 The library calculates the rewards of a **winning** strategy for you.
 
-**reward = the game mode's set reward × the map's difficulty scaling × (1 + the modifiers' bonus)**
+**coins and gems = the game mode's set reward × the map's difficulty scaling × (1 + the modifiers' bonus)**
+
+**unit EXP = the game mode's set reward × (1 + the modifiers' bonus)** (the map's difficulty never changes unit EXP)
 
 | Game mode | Coins | Gems | EXP |
 |---|---|---|---|
@@ -42,7 +45,7 @@ The library calculates the rewards of a **winning** strategy for you.
 | Hardcore | | 400 | 350 |
 | Voidcore | 1,000 | 700 | 420 |
 
-| Map difficulty | Scaling |
+| Map difficulty | Scaling (coins and gems only) |
 |---|---|
 | Very Easy | 0.5× |
 | Easy | 0.85× |
@@ -60,7 +63,7 @@ Each modifier adds a percentage, and the bonuses of all active modifiers add up 
 | Quarantine | +20% | Committed, Exploding, Hidden, Limitation | +10% |
 | Glass | +5% | | |
 
-The modifiers are **added together first** (+30% and +10% make 1.4×, not 1.3 × 1.1), and that total is then **multiplied** with the map scaling. For example, an Insane map (1.5×) with +30% modifiers pays 1.5 × 1.3 = 1.95× the game mode's set reward. Hard and Insane maps only pay their bonus for a win, which is why only win strategies are calculated. All of these numbers live in `lib\RewardDatabase.ahk` and `lib\ModifierDatabase.ahk`; change them there if the game changes.
+The modifiers are **added together first** (+30% and +10% make 1.4×, not 1.3 × 1.1), and that total is then **multiplied** with the map scaling. For example, an Insane map (1.5×) with +30% modifiers pays 1.5 × 1.3 = 1.95× the game mode's set coins and gems, but unit EXP only gets the 1.3×. Hard and Insane maps only pay their bonus for a win, which is why only win strategies are calculated. All of these numbers live in `lib\RewardDatabase.ahk` and `lib\ModifierDatabase.ahk`; change them there if the game changes.
 
 **Special game modes** pay fixed rewards. Map difficulty and modifiers never change them:
 
@@ -108,6 +111,7 @@ Detailed output is written to `%AppData%\Unlimited_Macro\Logs\reward_debug.log`.
 - Restart detection compares both button images and uses the better match.
 - Tower placement and cloning retry automatically and log each attempt.
 - **Audit log** – Errors, retries and recoveries are saved to `Logs\audit_log.tsv`. Open it from **Tools → Open Audit Log**.
+- **Debug Console** – The log overlay at the bottom right of the screen shows only the newest lines, and each line fades away after 10 seconds. Change that with `OverlayLifetime` (seconds, `0` = never fade) under `[Options]` in the settings file, or untick **Debug Console** in the Settings tab to hide the overlay completely. Saving changes in the strategy Info window is written to the audit log only and never appears on screen.
 - **Settings auto-save** – Checkboxes, hotkeys and inputs on the Settings and Discord tabs save in the background. Legacy Mode is applied only through **Save all settings**, since it reloads the macro.
 
 ---

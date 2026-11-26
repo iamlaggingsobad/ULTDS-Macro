@@ -2,9 +2,7 @@
 title=G Soldier
 author=Artemm20123 & Its_Pastik
 desc=Modifiers recommended, timescale optional.
-coins=large
-gems=?
-exp=?
+result=win
 time=~7m
 
 [Settings]
