@@ -6060,14 +6060,17 @@ CloseRoblox() {
 			send "{" SC_Esc "}{" SC_L "}{" SC_Enter "}"
 			SetKeyDelay PrevKeyDelay
 		}
-		try WinClose "Roblox"
-		Sleep 500
-		try WinClose "Roblox"
 		Sleep 4500 
 	}
 	
-	for p in ComObjGet("winmgmts:").ExecQuery("SELECT * FROM Win32_Process WHERE Name LIKE '%Roblox%' OR CommandLine LIKE '%ROBLOXCORPORATION%'")
-		ProcessClose p.ProcessID
+	; The client is no longer closed here. Joining a game by deep link only works when the Roblox client is already
+	; open; from a cold start it hangs on a white screen and fails with Error Code 256. So the macro just leaves the
+	; game (above) and RunRoblox sends the game link to the client that is still running. Leftover Roblox processes are
+	; only killed when there is no Roblox window left to reuse.
+	if (!GetRobloxHWND()) {
+		for p in ComObjGet("winmgmts:").ExecQuery("SELECT * FROM Win32_Process WHERE Name LIKE '%Roblox%' OR CommandLine LIKE '%ROBLOXCORPORATION%'")
+			ProcessClose p.ProcessID
+	}
 }
 
 resetCharacter() {
