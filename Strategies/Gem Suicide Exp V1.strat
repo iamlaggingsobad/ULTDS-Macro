@@ -3,15 +3,13 @@ title=Gem Suicide Exp V1
 author=Viperdio
 desc=
 result=lose
-coins=0
-gems=137
-exp=106
+wave=30
 time=~10m
 
 [Settings]
 map=Wretched Front
 difficulty=Hardcore
-requiredTowers=Electroshocker, Crook Boss, Farm, Kingpin
+requiredTowers=Electroshocker, Crook Boss, Farm, Military Base
 modifiers=
 autoChain=OFF
 autoCaravan=OFF

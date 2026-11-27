@@ -903,6 +903,7 @@ Loop Files, stratSrc[1] "\*.strat" {
     expR := ParseReward("exp", IniRead(localPath, "Info", "exp", ""))
     sModifiers := IniRead(localPath, "Settings", "modifiers", "")
     sResult := RewardResult(IniRead(localPath, "Info", "result", ""))      ; "win" (default) or "lose"
+    sWave := RewardWave(IniRead(localPath, "Info", "wave", ""))             ; the wave a losing strategy reaches
     
     LoadedStrats.Push({
         fileName: A_LoopFileName,
@@ -918,6 +919,7 @@ Loop Files, stratSrc[1] "\*.strat" {
         exp: expR,
         modifiers: sModifiers,
         result: sResult,
+        wave: sWave,
         path: localPath,
         user: stratSrc[2],
         stem: RegExReplace(A_LoopFileName, "i)\.strat$", "")
@@ -989,7 +991,7 @@ for index, strat in LoadedStrats {
     ; Each icon plate has its value written underneath, in the colour of that icon:
     ;   mode = the game mode colour, coins = gold, gems = magenta, unit exp = cyan, nothing/zero = grey.
     ;   Coins / gems / exp come from ComputeRewards (lib\RewardDatabase.ahk): a win is calculated from the mode, map
-    ;   and modifiers, a loss shows the typed values. When map scaling or modifiers change a number, the original is
+    ;   and modifiers, a loss from the wave it reaches. When map scaling or modifiers change a number, the original is
     ;   shown small and grey with a red streak and the new number sits under it.
     ;   map = the map's picture (Resources\Images\MapIcons) with its difficulty rating underneath.
     ; The up / down arrows move the card in the list (the order is saved).
@@ -2180,9 +2182,9 @@ NormalizeRewardSize(value) {
 }
 
 ; Reads one reward line (coins= / gems= / exp=) from a strat's [Info] section.
-; These typed rewards are only used by LOSE strategies (result=lose) and by modes without a reward table (Night
-; events). On a WIN strategy the rewards are calculated from the game mode, the map and the modifiers
-; (ComputeRewards in lib\RewardDatabase.ahk) and anything typed here is ignored.
+; These typed rewards are only used by game modes without reward formulas (the Night events). Everywhere else the
+; rewards are calculated by ComputeRewards (lib\RewardDatabase.ahk): a win from the game mode, map and modifiers, a
+; loss from the wave= line, and anything typed here is ignored.
 ; Accepted forms, in any order and any case:
 ;   coins=1425, large      coins=large, 1425      coins=1425      coins=large      coins=0      coins=   (or missing)
 ; "1,425" counts as one number. Unknown words are ignored, so a bad line can never break the library.
@@ -2426,26 +2428,29 @@ StratLib_Move(path, dir, *) {
     IniWrite(order, StateFile, "Library", "Order")
 }
 
-; Tooltip of a reward plate, e.g. "Large coins" or, when map scaling / modifiers changed it, "Large coins - map 125%, modifiers +10%".
+; Tooltip of a reward plate, e.g. "Large coins", "Large coins - wave 12" for a loss, or when map scaling / modifiers
+; changed the number "Large coins - map 125%, modifiers +10%".
 RewardTipText(kind, v, rw) {
     text := (kind = "exp") ? "Tower EXP" : ((v.size = "" ? "No" : StrUpper(SubStr(v.size, 1, 1)) SubStr(v.size, 2)) " " kind)
+    parts := ""
+    if (rw.computed && !rw.win && rw.wave != "")
+        parts := "wave " rw.wave
     if (v.changed) {
-        parts := ""
-        if (kind != "exp" && rw.scalePct != 100)          ; the map does not scale unit EXP
-            parts := "map " rw.scalePct "%"
+        if (v.scale != 100)                               ; only where the map scaled this reward
+            parts .= (parts != "" ? ", " : "") "map " v.scale "%"
         if (rw.bonus > 0)
             parts .= (parts != "" ? ", " : "") "modifiers +" rw.bonus "%"
-        if (parts != "")
-            text .= " - " parts
     }
+    if (parts != "")
+        text .= " - " parts
     return text
 }
 
 ; Shows a strat's rewards on its library card (coins / gems / exp numbers, the coin / gem icon size and the tooltips).
-;   Wins are calculated by ComputeRewards from the game mode, map and modifiers; the coins / gems / exp typed in the
-;   strat file are never changed. When the calculated number differs from the game mode's set reward, the set reward
-;   is shown small and grey with a red streak through it and the new number sits under it in the normal colour.
-;   Rewards with an unknown amount ("?") or 0 are shown as they are.
+;   ComputeRewards works the rewards out (a win from the game mode, map and modifiers, a loss from the wave it reaches);
+;   nothing is ever written to the strat file. When the calculated number differs from the original reward, the
+;   original is shown small and grey with a red streak through it and the new number sits under it in the normal
+;   colour. Rewards with an unknown amount ("?") or 0 are shown as they are.
 StratLib_ApplyRewards(rec) {
     rw := ComputeRewards(rec.strat)
     for kind, r in rec.rewards {
@@ -3076,9 +3081,17 @@ StopRecord(ctrl, *) {
         getRobloxPos(&pX, &pY, &currentWidth, &currentHeight)
 
         ; win or lose: a win strategy gets its rewards calculated, a lose strategy keeps the ones you type in
-        resultWin := (ModernMsgBox("Win or lose?", "Does this strategy WIN the match?`n`nYES = win (the rewards are calculated for you)`nNO = lose (you type the rewards into the strat file)", "YES|NO") = "YES")
+        resultWin := (ModernMsgBox("Win or lose?", "Does this strategy WIN the match?`n`nYES = win (the rewards are calculated for you)`nNO = lose (the rewards are calculated from the wave it reaches)", "YES|NO") = "YES")
 
-        FileAppend("[Info]`nresult=" (resultWin ? "win" : "lose") "`n`n[Settings]`nmap=" gamemap "`ndifficulty=" difficulty "`nrequiredTowers=" requiredTowers
+        ; a losing strategy needs the wave it reaches: its rewards are calculated from it
+        waveLine := ""
+        if (!resultWin) {
+            waveBox := InputBox("Which wave does this strategy reach before it loses?`n(its rewards are calculated from the wave)", "Wave reached", "w340 h150", "")
+            if (waveBox.Result = "OK" && RegExMatch(Trim(waveBox.Value), "^\d{1,3}$"))
+                waveLine := "wave=" Trim(waveBox.Value) "`n"
+        }
+
+        FileAppend("[Info]`nresult=" (resultWin ? "win" : "lose") "`n" waveLine "`n[Settings]`nmap=" gamemap "`ndifficulty=" difficulty "`nrequiredTowers=" requiredTowers
             . "`nmodifiers=" Join(modifiers)
             . "`nautoChain=" autoChain "`nautoCaravan=" autoCaravan "`nautoDropTheBeat=" autoDropTheBeat
             . "`nautoSkip=" AutoSkip "`nabilitySpam=" AbilitySpam "`nmoveEnabled=" MoveEnabled "`nmoveDirection=" MoveDirection
@@ -9830,7 +9843,8 @@ StratInfo_WriteKey(path, key, val) {
     }
 }
 
-; "REWARDS +NN%": the sum of the reward bonuses of the active modifiers (they all stack). Green when above 0.
+; "REWARDS +NN%": the reward bonus of the active modifiers (they stack, but Glass / Exploding / Limitation / Committed /
+; Speedy / Flying together are capped at +50%, shown as "(CAP)"). Green when above 0.
 ; Special game modes have fixed rewards, and modifiers only give a bonus on wins, so those show a grey note instead.
 StratInfo_UpdateBonus() {
     global StratInfoMods, StratInfoBonusTxt, StratInfoSpecial, StratInfoResult
@@ -9846,11 +9860,12 @@ StratInfo_UpdateBonus() {
         StratInfoBonusTxt.Value := "REWARDS  NO BONUS"
         return
     }
-    total := 0
+    codes := []
     for code, on in StratInfoMods
-        total += ModifierBonus(code)
+        codes.Push(code)
+    total := ModifierBonusFromCodes(codes)
     StratInfoBonusTxt.SetFont(total > 0 ? "c5BD98C" : "c6F7785")
-    StratInfoBonusTxt.Value := "REWARDS  +" total "%"
+    StratInfoBonusTxt.Value := "REWARDS  +" total "%" (ModifierCapReached(codes) ? "  (CAP)" : "")      ; (CAP): the +50% limit is cutting some off
 }
 
 StratInfo_Note() => "Use the pencil button on the card to edit the rest of this strategy."
@@ -10471,19 +10486,20 @@ GetDiscordMention(rawId) {
 }
 
 ; Total reward bonus (in %) of a strat's modifiers= line, e.g. "Hid, Fog" -> 30. Same rule as the Info window's
-; "REWARDS +NN%": every known modifier counts once, and anything unknown adds nothing.
+; "REWARDS +NN%": every known modifier counts once, anything unknown adds nothing, and Glass / Exploding / Limitation /
+; Committed / Speedy / Flying together are capped at +50% (see ModifierBonusFromCodes in lib\ModifierDatabase.ahk).
 ModifierBonusTotal(raw) {
-    seen := Map(), total := 0
+    seen := Map(), codes := []
     for tok in StrSplit(RegExReplace(raw, "[;|]", ","), ",", " `t") {
         if (tok = "" || StrLower(tok) = "none")
             continue
         code := NormalizeModifierToken(tok)
         if (!seen.Has(code)) {
             seen[code] := true
-            total += ModifierBonus(code)
+            codes.Push(code)
         }
     }
-    return total
+    return ModifierBonusFromCodes(codes)
 }
 
 ; ===================== Modifier helpers (used by the Strategy Info window) =====================

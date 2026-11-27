@@ -28,11 +28,13 @@ Automation macro for Roblox **Tower Defense Simulator**. Record strategies, repl
 - **Rewards** – The card works out the coins, gems and EXP of a winning strategy from its game mode, map and modifiers, and updates live when you change the modifiers. See [Rewards](#rewards).
 
 ### Rewards
-The library calculates the rewards of a **winning** strategy for you.
+The library calculates the rewards of a strategy for you, for wins and for losses.
 
-**coins and gems = the game mode's set reward × the map's difficulty scaling × (1 + the modifiers' bonus)**
+**coins = the game mode's set reward × the map's difficulty scaling × (1 + the modifiers' bonus)**
 
-**unit EXP = the game mode's set reward × (1 + the modifiers' bonus)** (the map's difficulty never changes unit EXP)
+**gems and unit EXP = the game mode's set reward × (1 + the modifiers' bonus)**
+
+The map's difficulty only scales **coins**. It never changes gems (Frost, Hardcore and Voidcore) or unit EXP, and Voidcore's coins are not scaled by the map either.
 
 | Game mode | Coins | Gems | EXP |
 |---|---|---|---|
@@ -45,7 +47,7 @@ The library calculates the rewards of a **winning** strategy for you.
 | Hardcore | | 400 | 350 |
 | Voidcore | 1,000 | 700 | 420 |
 
-| Map difficulty | Scaling (coins and gems only) |
+| Map difficulty | Scaling (coins only) |
 |---|---|
 | Very Easy | 0.5× |
 | Easy | 0.85× |
@@ -53,7 +55,7 @@ The library calculates the rewards of a **winning** strategy for you.
 | Hard | 1.25× |
 | Insane | 1.5× |
 
-Each modifier adds a percentage, and the bonuses of all active modifiers add up (the Info window shows the total as **REWARDS +NN%**).
+Each modifier adds a percentage, and the bonuses of all active modifiers add up (the Info window shows the total as **REWARDS +NN%**), with one limit described below the table.
 
 | Modifier | Bonus | Modifier | Bonus |
 |---|---|---|---|
@@ -63,7 +65,9 @@ Each modifier adds a percentage, and the bonuses of all active modifiers add up 
 | Quarantine | +20% | Committed, Exploding, Hidden, Limitation | +10% |
 | Glass | +5% | | |
 
-The modifiers are **added together first** (+30% and +10% make 1.4×, not 1.3 × 1.1), and that total is then **multiplied** with the map scaling. For example, an Insane map (1.5×) with +30% modifiers pays 1.5 × 1.3 = 1.95× the game mode's set coins and gems, but unit EXP only gets the 1.3×. Hard and Insane maps only pay their bonus for a win, which is why only win strategies are calculated. All of these numbers live in `lib\RewardDatabase.ahk` and `lib\ModifierDatabase.ahk`; change them there if the game changes.
+**Cap:** Glass, Exploding, Limitation, Committed, Speedy and Flying together can add at most **+50%**. For example, Speedy + Flying + Exploding is 25 + 20 + 10 = 55%, which counts as 50%. The other six modifiers (Broke, Healthy, Fog, Inflation, Quarantine and Hidden) have no cap and add on top, so Speedy + Flying + Exploding + Fog is 50% + 20% = 70%. The most all twelve modifiers can add is +180%. The Info window shows **(CAP)** next to the total when the cap is cutting something off.
+
+The modifiers are **added together first** (+30% and +10% make 1.4×, not 1.3 × 1.1), and that total is then **multiplied** with the map scaling. For example, an Insane map (1.5×) with +30% modifiers pays 1.5 × 1.3 = 1.95× the game mode's set coins, but gems and unit EXP only get the 1.3×. Hard and Insane maps only pay their bonus for a win, which is why only win strategies are calculated. All of these numbers live in `lib\RewardDatabase.ahk` and `lib\ModifierDatabase.ahk`; change them there if the game changes.
 
 **Special game modes** pay fixed rewards. Map difficulty and modifiers never change them:
 
@@ -73,13 +77,37 @@ The modifiers are **added together first** (+30% and +10% make 1.4×, not 1.3 ×
 | Badlands II | 1,400 | | 185 |
 | Polluted Wasteland II | 1,450 | 125 | 215 |
 
-**Win or lose.** The rewards above are only for wins, so every strategy says which it is with `result=win` or `result=lose` in its `[Info]` section (no `result` line means `win`; saving a recording asks you).
+**Win or lose.** Every strategy says which it is with `result=win` or `result=lose` in its `[Info]` section (no `result` line means `win`; saving a recording asks you).
 
-- **Win strategy:** the rewards are always calculated. `coins`, `gems` and `exp` in the `[Info]` section are ignored, so there is nothing to type in.
-- **Lose strategy:** nothing is calculated. Type the rewards the strategy actually earned into the `[Info]` section (they already include whatever the game paid for that map) and they are shown exactly as written.
-- Game modes without a reward table here (the Night events) also show the typed rewards.
+- **Win strategy:** the totals above, scaled by the map and the modifiers. Nothing is typed in.
+- **Lose strategy:** add `wave=` (the wave the strategy reaches before it loses) to the `[Info]` section and the rewards are calculated from that wave. Do not type rewards. Saving a recording that loses asks you for the wave.
+- Game modes without formulas here (the Night events) use the `coins`, `gems` and `exp` lines you type into the `[Info]` section.
 
-**On the card.** When map scaling or modifiers change a number, the game mode's set reward is shown small and grey with a red streak through it, and the new number sits under it in the normal colour. For example, a Voidcore win on a Normal map with Hidden (+10%) shows `1000` struck through and `1100` under it. Hover a plate to see which scaling was applied. Saving modifiers in the Info window updates the card instantly; no Refresh is needed. The `.strat` file is never changed by any of this.
+Every reward of a game mode follows one formula, and the **triumph bonus** is only paid for a win:
+
+**reward at a wave = A ÷ (1 + (W ÷ wave − 1) ^ p)**, plus the **triumph bonus B** on a win
+
+`A` is the reward at the last wave, `W` is the wave the formula ends at (a wave past `W` counts as `W`), and `p` is how steeply it grows. Unit EXP always has `p = 1`, so it grows in a straight line with the wave. At the last wave the wave part is exactly `A`, so a win pays `A + B`, which is the totals table above. Reaching wave 12 of a 25-wave Casual game, for example, pays `400 ÷ (1 + (25 ÷ 12 − 1) ^ 1.3)` = 189.6, which is **189 coins**, and 9.6, which is **9 EXP**.
+
+**Rounding.** Every amount is rounded **down** to a whole number, as the game does. Hardcore at wave 30, for example, works out to 137.8 gems, and the game pays 137. This is `RewardRound` in `lib\RewardDatabase.ahk` (change `Floor` to `Round` there to round to the nearest number instead).
+
+| Game mode | Coins `A`, `W`, `p`, `B` | Gems `A`, `W`, `p`, `B` | Unit EXP `A`, `W`, `B` |
+|---|---|---|---|
+| Casual | 400, 25, 1.3, +50 | | 20, 25, +30 |
+| Easy | 250, 20, 1.3, +50 | | 10, 25, +15 |
+| Intermediate | 500, 30, 1.3, +100 | | 35, 25, +40 |
+| Molten | 550, 35, 2.4, +400 | | 55, 35, +65 |
+| Fallen | 700, 40, 2.4, +650 | | 85, 40, +100 |
+| Frost | 800, 40, 2.4, +1,200 | +45 (win only) | 85, 40, +110 |
+| Hardcore | | 150, 45, 3.5, +250 | 160, 45, +190 |
+| Voidcore | +1,000 (win only) | 250, 50, 3, +450 | 190, 50, +230 |
+| Pizza Party | 450, 40, 3, +700 | | 95, 40, +120 |
+| Badlands II | 550, 30, 3, +850 | | 85, 30, +100 |
+| Polluted Wasteland II | 500, 25, 3, +950 | +125 (win only) | 95, 25, +120 |
+
+Rewards marked "win only" pay nothing on a loss. On a loss, only the Very Easy (0.5×) and Easy (0.85×) map reductions apply, and only to coins; the Hard and Insane bonuses are for a triumph only, modifiers only count on wins, and the special game modes are never scaled. A losing strategy with no `wave=` line shows `?` for its rewards.
+
+**On the card.** When map scaling or modifiers change a number, the original reward is shown small and grey with a red streak through it, and the new number sits under it in the normal colour. For example, a Voidcore win on a Normal map with Hidden (+10%) shows `1000` struck through and `1100` under it. Hover a plate to see which scaling was applied. Saving modifiers in the Info window updates the card instantly; no Refresh is needed. The `.strat` file is never changed by any of this.
 
 **Failsafes.** Special game modes cannot use modifiers: the Info window refuses to turn them on (it shows **REWARDS FIXED**) and removes any that are in the file when you save, and the Record tab clears and locks the modifier list when you pick a special mode. On a lose strategy the Info window shows **REWARDS NO BONUS**.
 
@@ -165,31 +193,30 @@ requiredTowers=Demoman, DJ, Hacker, Shotgunner, Juggernaut
 modifiers=Hidden, Fog
 ```
 
-A strategy that loses carries its own rewards instead:
+A strategy that loses says which wave it reaches, and its rewards are calculated from that:
 
 ```ini
 [Info]
 result=lose
-coins=120
-gems=0
-exp=15
+wave=12
 ```
 
 ### `[Info]` keys
 
 All keys are optional. Leave a value empty or omit the key if it is unknown; the strategy still loads normally.
 
-> **Important: the rewards in a `.strat` file are never boosted.** On a **win** strategy the macro calculates the rewards itself ([Rewards](#rewards)) and ignores `coins`, `gems` and `exp`. On a **lose** strategy, write the rewards the strategy actually earns; they are shown as written and no bonus is ever added to them. Never write numbers that already include a map or modifier bonus.
+> **Important: do not type rewards into a `.strat` file.** The macro calculates them itself ([Rewards](#rewards)): a win from the game mode, map and modifiers, and a loss from its `wave=` line. Any `coins`, `gems` or `exp` you write are ignored, except for game modes without formulas (the Night events). Never write numbers that already include a map or modifier bonus; the bonus would be counted twice.
 
 | Key | Description |
 |---|---|
 | `title`, `author`, `desc` | Descriptive text shown on the card. |
-| `result` | `win` or `lose` (also accepts `loss`, `lost`, `defeat`). Decides whether the rewards are calculated (win, the default) or typed in (lose). |
-| `coins`, `gems` | **Lose strategies only.** An amount, a tier (`small`, `medium`, `large`, `largest`), or both in any order (e.g. `1425, large`). The amount is displayed under the icon and the tier selects the icon; the tier name itself is never shown. With only an amount, the tier is chosen automatically (see [Icon sizes](#rewards)). Ignored on win strategies. |
-| `exp` | **Lose strategies only.** Unit EXP, as a number. Ignored on win strategies. |
+| `result` | `win` or `lose` (also accepts `loss`, `lost`, `defeat`). A win pays the full rewards; a loss pays what the wave it reaches is worth. Defaults to `win`. |
+| `wave` | **Lose strategies only.** The wave the strategy reaches before it loses, as a whole number (for example `30`). The rewards of the loss are calculated from it. Ignored on win strategies. |
+| `coins`, `gems` | **Night events only** (game modes without reward formulas). An amount, a tier (`small`, `medium`, `large`, `largest`), or both in any order (e.g. `1425, large`). The amount is displayed under the icon and the tier selects the icon; the tier name itself is never shown. With only an amount, the tier is chosen automatically (see [Icon sizes](#rewards)). Ignored for every other game mode. |
+| `exp` | **Night events only.** Unit EXP, as a number. Ignored for every other game mode. |
 | `time` | Free text shown on the card. |
 
-Library card display of typed rewards (lose strategies and the Night events):
+Library card display of typed rewards (the Night events):
 
 - `coins` / `gems` with an amount show that amount. Empty or missing values show a greyed-out `0`.
 - `coins` / `gems` with only a tier (e.g. `large`) show the tier's icon with `?`, because the amount is unknown.
