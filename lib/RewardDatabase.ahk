@@ -30,7 +30,7 @@
 ;     for a triumph only, and modifiers only count on wins. With no wave= line the rewards show "?".
 ;   Special game modes (Pizza Party, Badlands II, Polluted Wasteland II)
 ;     Map difficulty and modifiers never change their rewards, so both are ignored (wins and losses).
-;   Game modes without formulas (the Night events) use the coins= / gems= / exp= lines of the strat's [Info] section.
+;   A game mode that has no formulas here shows "?" for its rewards (add it to ModeFormulas).
 ;
 ; Amounts are always rounded down to a whole number (RewardRound), as the game does.
 ;
@@ -147,7 +147,7 @@ RewardSizeFor(kind, amount) {
 }
 
 ; The rewards the library card shows for a strat (a record from the library loader, with .difficulty .map .modifiers
-; .result .wave and the typed .coins .gems .exp). Returns
+; .result .wave). Returns
 ;   {win, special, computed, scalePct, bonus, wave, coins: R, gems: R, exp: R}      (scalePct = the map's scaling; each R.scale is what was applied)
 ; with R = {orig, amount, size, text, active, changed, scale}
 ;   orig    the reward before map scaling and modifiers (a win: A + B; a loss: the formula at the strat's wave)
@@ -165,12 +165,10 @@ ComputeRewards(strat) {
     wave := HasProp(strat, "wave") ? strat.wave : ""
     out := {win: strat.result != "lose", special: special != "", computed: false, scalePct: 100, bonus: 0, wave: wave}
 
-    ; modes without formulas (the Night events): the typed rewards, exactly as written
+    ; a game mode without formulas (one this macro does not know yet): nothing can be worked out
     if (!IsObject(formulas)) {
-        for kind in ["coins", "gems", "exp"] {
-            t := strat.%kind%
-            out.%kind% := {orig: t.amount, amount: t.amount, size: t.size, text: t.text, active: t.active, changed: false, scale: 100}
-        }
+        for kind in ["coins", "gems", "exp"]
+            out.%kind% := {orig: "", amount: "", size: "", text: "?", active: false, changed: false, scale: 100}
         return out
     }
 

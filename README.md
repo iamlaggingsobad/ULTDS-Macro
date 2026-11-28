@@ -15,7 +15,6 @@ Automation macro for Roblox **Tower Defense Simulator**. Record strategies, repl
 - **Auto-equip towers** – Equips the towers a strategy requires before joining.
 - **Timescale support** – Uses 1.5x and 2x Timescale tickets, and stops requesting them once they run out.
 - **Playtime rewards** – Collects daily and playtime rewards from the lobby.
-- **Night events** – Full Night 3 and Night 4 support, including the "Your Loadout" step.
 - **Advanced towers** – Split upgrade paths and special towers such as Hacker and Juggernaut.
 - **VIP servers** – Paste a private server link to run in your own server.
 
@@ -81,7 +80,7 @@ The modifiers are **added together first** (+30% and +10% make 1.4×, not 1.3 ×
 
 - **Win strategy:** the totals above, scaled by the map and the modifiers. Nothing is typed in.
 - **Lose strategy:** add `wave=` (the wave the strategy reaches before it loses) to the `[Info]` section and the rewards are calculated from that wave. Do not type rewards. Saving a recording that loses asks you for the wave.
-- Game modes without formulas here (the Night events) use the `coins`, `gems` and `exp` lines you type into the `[Info]` section.
+- A game mode that has no formulas yet shows `?` for its rewards. Add its formulas to `ModeFormulas` in `lib\RewardDatabase.ahk`.
 
 Every reward of a game mode follows one formula, and the **triumph bonus** is only paid for a win:
 
@@ -205,29 +204,21 @@ wave=12
 
 All keys are optional. Leave a value empty or omit the key if it is unknown; the strategy still loads normally.
 
-> **Important: do not type rewards into a `.strat` file.** The macro calculates them itself ([Rewards](#rewards)): a win from the game mode, map and modifiers, and a loss from its `wave=` line. Any `coins`, `gems` or `exp` you write are ignored, except for game modes without formulas (the Night events). Never write numbers that already include a map or modifier bonus; the bonus would be counted twice.
+> **Important: do not type rewards into a `.strat` file.** The macro calculates them itself ([Rewards](#rewards)): a win from the game mode, map and modifiers, and a loss from its `wave=` line. Any `coins`, `gems` or `exp` lines in a file are ignored. Never write numbers that already include a map or modifier bonus; the bonus would be counted twice.
 
 | Key | Description |
 |---|---|
 | `title`, `author`, `desc` | Descriptive text shown on the card. |
 | `result` | `win` or `lose` (also accepts `loss`, `lost`, `defeat`). A win pays the full rewards; a loss pays what the wave it reaches is worth. Defaults to `win`. |
 | `wave` | **Lose strategies only.** The wave the strategy reaches before it loses, as a whole number (for example `30`). The rewards of the loss are calculated from it. Ignored on win strategies. |
-| `coins`, `gems` | **Night events only** (game modes without reward formulas). An amount, a tier (`small`, `medium`, `large`, `largest`), or both in any order (e.g. `1425, large`). The amount is displayed under the icon and the tier selects the icon; the tier name itself is never shown. With only an amount, the tier is chosen automatically (see [Icon sizes](#rewards)). Ignored for every other game mode. |
-| `exp` | **Night events only.** Unit EXP, as a number. Ignored for every other game mode. |
 | `time` | Free text shown on the card. |
-
-Library card display of typed rewards (the Night events):
-
-- `coins` / `gems` with an amount show that amount. Empty or missing values show a greyed-out `0`.
-- `coins` / `gems` with only a tier (e.g. `large`) show the tier's icon with `?`, because the amount is unknown.
-- `exp` left blank or missing shows `?`; an explicit `0` shows a greyed-out `0`.
 
 ### `[Settings]` keys
 
 | Key | Description |
 |---|---|
 | `map` | Map to play. Its difficulty rating scales the rewards of a win (not for the special game modes). |
-| `difficulty` | Game mode: Easy, Casual, Intermediate, Molten, Fallen, Frost, Hardcore, Voidcore, or the special modes Pizza Party, Badlands II and Polluted Wasteland II. Use `Night3` or `Night4` for Night events (`N4` is still accepted). The Easy or Hard variant is selected from the strategy. |
+| `difficulty` | Game mode: Easy, Casual, Intermediate, Molten, Fallen, Frost, Hardcore, Voidcore, or the special modes Pizza Party, Badlands II and Polluted Wasteland II. |
 | `requiredTowers` | Comma-separated towers to equip before joining. |
 | `modifiers` | The strategy's modifiers, comma-separated, by name or short code (e.g. `Hidden, Fog` or `Hid, Fog`). Normally edited from the Info window. They add a reward bonus on wins. Not allowed in the special game modes (they are ignored and removed when you save). |
 
@@ -235,7 +226,7 @@ Library card display of typed rewards (the Night events):
 
 Icons are loaded from `Resources\Images`:
 
-- Difficulty: `<difficulty>.png` (e.g. `Molten.png`, `Night4.png`)
+- Difficulty: `<difficulty>.png` (e.g. `Molten.png`, `Frost.png`)
 - Rewards: `coins_<size>.png` and `gems_<size>.png`; unit EXP always uses `exp.png`
 - Empty state: `coins_none.png` and `gems_none.png`
 - Clock next to the run time: `clock.png`
@@ -244,6 +235,38 @@ Icons are loaded from `Resources\Images`:
 - Modifiers: `ModifierIcons\<Modifier>.png`, plus `<Modifier>_Gray.png` for the off state
 
 Maps, towers and modifiers are listed in `lib\MapDatabase.ahk`, `lib\TowerDatabase.ahk` and `lib\ModifierDatabase.ahk`. To add a map or tower, add a line to its list there; a missing icon file shows the initials of the map or tower (or the short code of a modifier) instead.
+
+---
+
+## Project Layout
+
+| Path | What it holds |
+|---|---|
+| `Main.ahk` | Start-up only: settings, the main window and its controls, hotkeys, and the `#Include` lines for everything below. |
+| `src\` | The program's functions, one module per job (table below). |
+| `lib\` | Libraries and data tables: Gdip, OCR, JSON, image search, and the map, tower, modifier and reward databases. |
+| `submacros\` | Separate scripts that run alongside the macro: the watchdog and the tool macros. |
+| `Strategies\` | Your `.strat` files. |
+| `Resources\` | Images used for image search and the UI. |
+
+| Module (`src\`) | Job |
+|---|---|
+| `Util.ahk` | Small helpers: lists, formatting, screen scaling, key names. |
+| `Vision.ahk` | Image search and reading text on screen (OCR). |
+| `Gfx.ahk` | Drawing helpers for the custom UI: gradient buttons, card frames, scroll thumbs, message boxes. |
+| `Logging.ahk` | The audit log (file and viewer) and the Debug Console overlay. |
+| `Discord.ahk` | The webhook queue, sending messages, and the bot's chat commands. |
+| `Process.ahk` | Safe reload, exit handling, the watchdog and sub-macros. |
+| `Settings.ahk` | Saving and checking settings, including the Discord / webhook settings and their tests. |
+| `Window.ahk` | The main window: tabs, dragging, hover effects, links, help popups, tool launchers. |
+| `Library.ahk` | The strategy library: cards, order, Load / Add / Remove, live reward updates. |
+| `StratInfo.ahk` | The strategy Info window: view and edit title, author, description and modifiers. |
+| `Recording.ahk` | Recording a strategy: its hotkeys, captured inputs and saving the file. |
+| `Playback.ahk` | Loading and running strategies: the Strategy 1 / 2 slots, rotation, executing steps. |
+| `Towers.ahk` | Tower actions: place, upgrade, sell, clone, targets, abilities, DJ tracks, indicators, special map paths. |
+| `Lobby.ahk` | The lobby and the match: Roblox start / stop, joining, parties, ready, restart, reconnect, daily rewards. |
+
+The modules contain **functions only**; nothing runs from them. Code that must run when the macro starts stays in `Main.ahk`. To add a function, put it in the module whose job it matches. To add a module, create the file in `src\` and add one `#Include src\<name>.ahk` line to `Main.ahk`.
 
 ---
 

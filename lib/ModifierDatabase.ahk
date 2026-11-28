@@ -74,3 +74,64 @@ ModifierIconPath(name, gray := false) {
         return base "_Gray.png"
     return FileExist(base ".png") ? base ".png" : ""
 }
+
+; ---- Reading a strat's modifiers= line (moved here from Main.ahk) -----------------------------------------------------
+
+; Total reward bonus (in %) of a strat's modifiers= line, e.g. "Hid, Fog" -> 30. Same rule as the Info window's
+; "REWARDS +NN%": every known modifier counts once, anything unknown adds nothing, and Glass / Exploding / Limitation /
+; Committed / Speedy / Flying together are capped at +50% (see ModifierBonusFromCodes in lib\ModifierDatabase.ahk).
+ModifierBonusTotal(raw) {
+    seen := Map(), codes := []
+    for tok in StrSplit(RegExReplace(raw, "[;|]", ","), ",", " `t") {
+        if (tok = "" || StrLower(tok) = "none")
+            continue
+        code := NormalizeModifierToken(tok)
+        if (!seen.Has(code)) {
+            seen[code] := true
+            codes.Push(code)
+        }
+    }
+    return ModifierBonusFromCodes(codes)
+}
+
+NormalizeModifierToken(token) {
+    tok := Trim(token)
+    if (tok = "")
+        return ""
+    tokLower := StrLower(tok)
+
+    static modMap := [
+        { code: "Gla", prefix: "gl", name: "glass" },
+        { code: "Hid", prefix: "hi", name: "hidden" },
+        { code: "Exp", prefix: "ex", name: "exploding" },
+        { code: "Lim", prefix: "li", name: "limitation" },
+        { code: "Com", prefix: "co", name: "committed" },
+        { code: "Fly", prefix: "fl", name: "flying" },
+        { code: "Fog", prefix: "fo", name: "fog",        aliases: ["foggy"] },
+        { code: "Qua", prefix: "qu", name: "quarantine", aliases: ["arm", "armored"] },
+        { code: "Inf", prefix: "in", name: "inflation",  aliases: ["reg", "regeneration"] },
+        { code: "Bro", prefix: "br", name: "broke",      aliases: ["slo", "slow"] },
+        { code: "Spe", prefix: "sp", name: "speedy" },
+        { code: "Hea", prefix: "he", name: "healthy",    aliases: ["str", "strong"] }
+    ]
+
+    for item in modMap {
+        if (tokLower = StrLower(item.code)
+            || tokLower = item.prefix
+            || tokLower = item.name
+            || (StrLen(tokLower) >= 2 && SubStr(tokLower, 1, 2) = item.prefix)
+            || InStr(item.name, tokLower) = 1) {
+            return item.code
+        }
+        if (item.HasProp("aliases")) {
+            for alias in item.aliases {
+                if (tokLower = alias || (StrLen(tokLower) >= 3 && InStr(alias, tokLower) = 1))
+                    return item.code
+            }
+        }
+    }
+
+    if (StrLen(tok) >= 3)
+        return StrUpper(SubStr(tok, 1, 1)) . StrLower(SubStr(tok, 2, 2))
+    return tok
+}
