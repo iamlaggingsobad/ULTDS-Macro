@@ -1,0 +1,97 @@
+[Info]
+title=G Soldier + Military Base
+author=Artemm20123 & Its_Pastik
+desc=Modifiers recommended, timescale optional.
+result=win
+time=~7m
+
+[Settings]
+map=Dead Ahead
+difficulty=Easy
+requiredTowers=G Soldier, Military Base
+modifiers=
+autoChain=OFF
+autoCaravan=OFF
+autoDropTheBeat=OFF
+autoSkip=ON
+abilitySpam=OFF
+moveEnabled=1
+moveDirection=W
+moveDuration=400
+
+[DO NOT EDIT]
+width=1920
+height=1080
+
+[Steps]
+SpawnTower(916, 306, 1, G Soldier1)
+SpawnTower(915, 361, 1, G Soldier2)
+SpawnTower(1006, 308, 1, G Soldier3)
+SpawnTower(1008, 363, 1, G Soldier4)
+UpgradeTower(G Soldier1)
+UpgradeTower(G Soldier1)
+UpgradeTower(G Soldier2)
+UpgradeTower(G Soldier2)
+UpgradeTower(G Soldier3)
+UpgradeTower(G Soldier3)
+UpgradeTower(G Soldier4)
+UpgradeTower(G Soldier4)
+SpawnTower(1054, 286, 1, G Soldier5)
+UpgradeTower(G Soldier5)
+UpgradeTower(G Soldier5)
+SpawnTower(1055, 333, 1, G Soldier6)
+UpgradeTower(G Soldier6)
+UpgradeTower(G Soldier6)
+UpgradeTower(G Soldier6)
+SpawnTower(1056, 385, 1, G Soldier7)
+UpgradeTower(G Soldier7)
+UpgradeTower(G Soldier7)
+SpawnTower(869, 330, 1, G Soldier8)
+UpgradeTower(G Soldier8)
+UpgradeTower(G Soldier8)
+UpgradeTower(G Soldier3)
+UpgradeTower(G Soldier5)
+UpgradeTower(G Soldier4)
+UpgradeTower(G Soldier7)
+UpgradeTower(G Soldier1)
+UpgradeTower(G Soldier2)
+UpgradeTower(G Soldier8)
+SpawnTower(862, 380, 1, G Soldier9)
+UpgradeTower(G Soldier9)
+UpgradeTower(G Soldier9)
+UpgradeTower(G Soldier9)
+SpawnTower(1103, 308, 1, G Soldier10)
+UpgradeTower(G Soldier10)
+UpgradeTower(G Soldier10)
+UpgradeTower(G Soldier10)
+SpawnTower(1103, 357, 1, G Soldier11)
+UpgradeTower(G Soldier11)
+UpgradeTower(G Soldier11)
+UpgradeTower(G Soldier11)
+--------------------------------------
+SpawnTower(1200, 569, 2, GRINDTOWER)
+--------------------------------------
+SpawnTower(909, 415, 1, G Soldier12)
+UpgradeTower(G Soldier12)
+UpgradeTower(G Soldier12)
+UpgradeTower(G Soldier12)
+SpawnTower(810, 386, 1, G Soldier13)
+UpgradeTower(G Soldier13)
+UpgradeTower(G Soldier13)
+UpgradeTower(G Soldier13)
+SpawnTower(1009, 420, 1, G Soldier14)
+UpgradeTower(G Soldier14)
+UpgradeTower(G Soldier14)
+UpgradeTower(G Soldier14)
+SpawnTower(1109, 410, 1, G Soldier15)
+UpgradeTower(G Soldier15)
+UpgradeTower(G Soldier15)
+UpgradeTower(G Soldier15)
+SpawnTower(1062, 444, 1, G Soldier16)
+UpgradeTower(G Soldier16)
+UpgradeTower(G Soldier16)
+UpgradeTower(G Soldier16)
+UpgradeTower(G Soldier3)
+UpgradeTower(G Soldier4)
+UpgradeTower(G Soldier14)
+UpgradeTower(G Soldier6)
